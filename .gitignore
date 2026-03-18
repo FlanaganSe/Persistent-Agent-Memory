@@ -6,3 +6,42 @@ CLAUDE.local.md
 
 # OS
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# RKP local state (regenerable)
+.rkp/local/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+.nox/
+
+# mypy / pyright
+.mypy_cache/
+.pyright/
+
+# uv
+uv.lock

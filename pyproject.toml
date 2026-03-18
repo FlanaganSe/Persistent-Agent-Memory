@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "repo-knowledge-plane"
+version = "0.1.0"
+description = "Portable, verified repo context for every coding agent"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.14"
+authors = [{ name = "Sean Flanagan" }]
+dependencies = [
+    "pydantic>=2.0.0,<3.0.0",
+    "pydantic-settings>=2.7.0,<3.0.0",
+    "structlog>=25.0.0",
+    "pyyaml>=6.0.0",
+    "strictyaml>=1.7.0",
+    "typer[all]>=0.15.0,<1.0.0",
+    "fastmcp>=3.1.0,<4.0.0",
+    "tree-sitter>=0.25.0,<1.0.0",
+    "tree-sitter-language-pack>=0.13.0",
+    "dockerfile-parse>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+    "pyright>=1.1.400",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "hypothesis>=6.0.0",
+    "syrupy>=4.0.0",
+    "pytest-cov>=6.0.0",
+    "pytest-benchmark>=5.0.0",
+    "nox>=2024.0.0",
+]
+
+[project.scripts]
+rkp = "rkp.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rkp"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PTH", "PERF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rkp"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+include = ["src"]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
