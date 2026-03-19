@@ -239,7 +239,7 @@ _Goal: Get from zero to a working end-to-end vertical slice — config → claim
   - **Verification**: `rkp preview --host codex` produces a non-empty AGENTS.md preview from a Python repo's pyproject.toml. MCP tool returns validated commands. Sensitivity filter blocks local-only claims from projection. Snapshot test passes.
   - **AC coverage**: Partial AC-1 (first useful output path), AC-6 (get_validated_commands), partial AC-13 (provenance), partial AC-18 (thin projection)
 
-- [ ] **M3: Git backend + tree-sitter + Python convention extraction**
+- [x] **M3: Git backend + tree-sitter + Python convention extraction**
   - [x] Step 1 — Git backend + tree-sitter parser + convention extractor + fixture files → verify: `ruff check src/rkp/git src/rkp/indexer/parsers src/rkp/indexer/extractors/conventions.py && pyright src/rkp/git src/rkp/indexer/parsers src/rkp/indexer/extractors/conventions.py`
   - [x] Step 2 — Extend orchestrator + AGENTS.md projection + MCP tool + CLI → verify: `ruff check src/rkp/indexer/orchestrator.py src/rkp/projection/adapters/agents_md.py src/rkp/server && pyright src/rkp/indexer/orchestrator.py src/rkp/projection/adapters/agents_md.py src/rkp/server`
   - [x] Step 3 — All tests (unit, integration, snapshot, MCP contract) → verify: `pytest tests/ -v`
