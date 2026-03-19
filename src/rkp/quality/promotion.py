@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from rkp.quality.types import (
     ConformanceResult,
     DriftResult,
@@ -15,20 +17,20 @@ _GA_CONFORMANCE_THRESHOLD = 0.95
 _BETA_CONFORMANCE_THRESHOLD = 0.0  # Beta just needs conformance to pass with documented gaps
 
 
-def _count_leakage(results: list[LeakageResult], adapter_name: str) -> int:
+def _count_leakage(results: Sequence[LeakageResult], adapter_name: str) -> int:
     """Count leakage incidents for a specific adapter's projection boundary."""
     return sum(
         1 for r in results if r.leaked and r.boundary.startswith(f"projection:{adapter_name}")
     )
 
 
-def _drift_passed(results: list[DriftResult]) -> bool:
+def _drift_passed(results: Sequence[DriftResult]) -> bool:
     """Check if all drift tests passed."""
     return all(r.passed for r in results)
 
 
 def _get_conformance(
-    results: list[ConformanceResult],
+    results: Sequence[ConformanceResult],
     adapter_name: str,
 ) -> ConformanceResult | None:
     """Get conformance result for a specific adapter."""

@@ -10,7 +10,7 @@ import pytest
 from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.indexer.orchestrator import run_extraction
 from rkp.quality.conformance import evaluate_conformance
-from rkp.quality.leakage import test_leakage
+from rkp.quality.leakage import check_leakage
 from rkp.store.claims import SqliteClaimStore
 from rkp.store.database import open_database, run_migrations
 
@@ -75,7 +75,7 @@ class TestCursorWindsurfLeakage:
         db = open_database(db_path)
         run_migrations(db)
 
-        results = test_leakage(db)
+        results = check_leakage(db)
         boundaries = {r.boundary for r in results}
         assert "projection:cursor" in boundaries
 
@@ -84,7 +84,7 @@ class TestCursorWindsurfLeakage:
         db = open_database(db_path)
         run_migrations(db)
 
-        results = test_leakage(db)
+        results = check_leakage(db)
         boundaries = {r.boundary for r in results}
         assert "projection:windsurf" in boundaries
 
@@ -93,7 +93,7 @@ class TestCursorWindsurfLeakage:
         db = open_database(db_path)
         run_migrations(db)
 
-        results = test_leakage(db)
+        results = check_leakage(db)
         cursor_results = [r for r in results if r.boundary == "projection:cursor"]
         assert len(cursor_results) > 0
         leaked = [r for r in cursor_results if r.leaked]
@@ -104,7 +104,7 @@ class TestCursorWindsurfLeakage:
         db = open_database(db_path)
         run_migrations(db)
 
-        results = test_leakage(db)
+        results = check_leakage(db)
         windsurf_results = [r for r in results if r.boundary == "projection:windsurf"]
         assert len(windsurf_results) > 0
         leaked = [r for r in windsurf_results if r.leaked]

@@ -75,9 +75,11 @@ def _compute_freshness(
                 index_age = int((datetime.now(UTC) - indexed_at).total_seconds())
             except ValueError:
                 pass
-            head_current = meta is None or stale_count == 0
+            head_current = stale_count == 0
     except Exception:
-        pass
+        import structlog
+
+        structlog.get_logger().warning("freshness_computation_failed", exc_info=True)
     return ResponseFreshness(
         index_age_seconds=index_age,
         stale_claims_in_response=stale_count,

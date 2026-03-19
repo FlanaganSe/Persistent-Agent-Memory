@@ -46,3 +46,6 @@ htmlcov/
 # uv
 uv.lock
 tests/fixtures/simple_python/.rkp/
+
+# Generated artifacts
+quality-report.json

@@ -227,7 +227,7 @@ def _test_get_claim_leakage(
     return results
 
 
-def test_leakage(
+def check_leakage(
     db: sqlite3.Connection,
     repo_id: str = "leakage-test",
 ) -> list[LeakageResult]:

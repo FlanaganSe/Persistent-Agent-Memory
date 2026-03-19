@@ -1,6 +1,6 @@
 # Repo Knowledge Plane — Product Requirements Document
 
-_v4.0 — 2026-03-18. Revised from v3.0 after external review and critique. Research base: `docs/research.md`._
+_v4.0 — 2026-03-18. Revised from v3.0 after external review and critique. Research base: `docs/research-product.md`, `docs/research-build.md`._
 
 ---
 

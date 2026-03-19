@@ -111,11 +111,11 @@ def _traced(
         trace = _ctx_trace_logger(ctx)
         if trace is None:
             return
-        raw = resp.to_dict() if hasattr(resp, "to_dict") else {}
-        data = raw.get("data", {})
+        raw: dict[str, Any] = resp.to_dict() if hasattr(resp, "to_dict") else {}
+        data: dict[str, Any] | None = raw.get("data")
         claim_count = 0
         if isinstance(data, dict):
-            items = data.get("items")
+            items: list[Any] | None = data.get("items")
             if isinstance(items, list):
                 claim_count = len(items)
         # Estimate size without full serialization to avoid errors on non-serializable types

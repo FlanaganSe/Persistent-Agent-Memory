@@ -69,6 +69,7 @@ venv = ".venv"
 testpaths = ["tests"]
 pythonpath = ["src"]
 norecursedirs = ["tests/fixtures"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.towncrier]
 package = "rkp"

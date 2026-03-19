@@ -64,9 +64,6 @@ def generate_benchmark_repo(
     rng = random.Random(seed)
     total_lines = 0
     file_count = 0
-    avg_lines_per_file = 100
-    target_files = target_loc // avg_lines_per_file
-
     # Create project structure
     src_dir = target_dir / "src" / "benchmark_app"
     src_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +153,7 @@ jobs:
         (module_dir / "__init__.py").write_text(f'"""{module} package."""\n')
         total_lines += 1
 
-    while file_count < target_files and total_lines < target_loc:
+    while total_lines < target_loc:
         module = modules[file_count % len(modules)]
         module_dir = src_dir / module
         file_name = f"mod_{file_count:04d}.py"
@@ -166,9 +163,14 @@ jobs:
         lines.append(_DOCSTRING)
         lines.append("")
 
-        # Generate functions and classes
-        num_functions = rng.randint(2, 6)
-        num_classes = rng.randint(0, 2)
+        # Generate functions and classes — scale up when far from target
+        remaining = target_loc - total_lines
+        if remaining > 10_000:
+            num_functions = rng.randint(3, 8)
+            num_classes = rng.randint(1, 3)
+        else:
+            num_functions = rng.randint(2, 6)
+            num_classes = rng.randint(0, 2)
 
         for i in range(num_functions):
             func_name = f"process_{module}_{file_count}_{i}"

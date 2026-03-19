@@ -11,11 +11,14 @@ import structlog
 
 from rkp.quality.conformance import evaluate_conformance
 from rkp.quality.fixtures import evaluate_fixture
-from rkp.quality.leakage import test_leakage
+from rkp.quality.leakage import check_leakage
 from rkp.quality.promotion import check_promotion_eligibility
 from rkp.quality.types import (
+    ConformanceResult,
     DriftResult,
+    FixtureResult,
     ImportFidelityResult,
+    LeakageResult,
     PerformanceResults,
     QualityReport,
 )
@@ -27,10 +30,8 @@ logger = structlog.get_logger()
 _ADAPTERS = ("agents-md", "claude", "copilot")
 
 
-def _evaluate_fixtures(fixtures_dir: Path) -> list[object]:
+def _evaluate_fixtures(fixtures_dir: Path) -> list[FixtureResult]:
     """Run extraction precision/recall on each fixture with expected_claims.json."""
-    from rkp.quality.types import FixtureResult
-
     results: list[FixtureResult] = []
     for fixture_path in sorted(fixtures_dir.iterdir()):
         if not fixture_path.is_dir():
@@ -52,17 +53,15 @@ def _evaluate_fixtures(fixtures_dir: Path) -> list[object]:
             result = evaluate_fixture(fixture_path, expected_path, db_path=tmp_db)
             results.append(result)
 
-    return results  # type: ignore[return-value]
+    return results
 
 
-def _evaluate_conformance(fixtures_dir: Path) -> list[object]:
+def _evaluate_conformance(fixtures_dir: Path) -> list[ConformanceResult]:
     """Run export conformance for each adapter on the simple_python fixture."""
-    from rkp.quality.types import ConformanceResult
-
     results: list[ConformanceResult] = []
     fixture_path = fixtures_dir / "simple_python"
     if not fixture_path.is_dir():
-        return results  # type: ignore[return-value]
+        return results
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_db_path = Path(tmp) / "conformance.db"
@@ -90,34 +89,30 @@ def _evaluate_conformance(fixtures_dir: Path) -> list[object]:
 
         db.close()
 
-    return results  # type: ignore[return-value]
+    return results
 
 
-def _evaluate_leakage() -> list[object]:
+def _evaluate_leakage() -> list[LeakageResult]:
     """Run leakage tests across all output boundaries."""
-    from rkp.quality.types import LeakageResult
-
     with tempfile.TemporaryDirectory() as tmp:
         tmp_db_path = Path(tmp) / "leakage.db"
         db = open_database(tmp_db_path)
         run_migrations(db)
 
         try:
-            results: list[LeakageResult] = test_leakage(db)
+            results: list[LeakageResult] = check_leakage(db)
         finally:
             db.close()
 
-    return results  # type: ignore[return-value]
+    return results
 
 
-def _evaluate_drift(fixtures_dir: Path) -> list[object]:
+def _evaluate_drift(fixtures_dir: Path) -> list[DriftResult]:
     """Run drift detection on the with_drift fixture."""
-    from rkp.quality.types import DriftResult
-
     results: list[DriftResult] = []
     drift_fixture = fixtures_dir / "with_drift"
     if not drift_fixture.is_dir():
-        return results  # type: ignore[return-value]
+        return results
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_db_path = Path(tmp) / "drift.db"
@@ -162,17 +157,15 @@ def _evaluate_drift(fixtures_dir: Path) -> list[object]:
 
         db.close()
 
-    return results  # type: ignore[return-value]
+    return results
 
 
-def _evaluate_import_fidelity(fixtures_dir: Path) -> list[object]:
+def _evaluate_import_fidelity(fixtures_dir: Path) -> list[ImportFidelityResult]:
     """Run import → project round-trip tests."""
-    from rkp.quality.types import ImportFidelityResult
-
     results: list[ImportFidelityResult] = []
     agents_fixture = fixtures_dir / "with_agents_md"
     if not agents_fixture.is_dir():
-        return results  # type: ignore[return-value]
+        return results
 
     agents_md_path = agents_fixture / "AGENTS.md"
     with tempfile.TemporaryDirectory() as tmp:
@@ -240,7 +233,7 @@ def _evaluate_import_fidelity(fixtures_dir: Path) -> list[object]:
         finally:
             db.close()
 
-    return results  # type: ignore[return-value]
+    return results
 
 
 def _format_report(report: QualityReport) -> str:
