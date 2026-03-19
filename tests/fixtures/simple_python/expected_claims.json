@@ -1,0 +1,21 @@
+{
+  "description": "Expected claims from simple_python fixture",
+  "claims": [
+    {
+      "content": "myapp.main:run",
+      "claim_type": "validated-command",
+      "source_authority": "executable-config",
+      "risk_class": "build",
+      "confidence": 1.0,
+      "evidence": ["pyproject.toml"]
+    },
+    {
+      "content": "pytest",
+      "claim_type": "validated-command",
+      "source_authority": "executable-config",
+      "risk_class": "test-execution",
+      "confidence": 0.9,
+      "evidence": ["pyproject.toml"]
+    }
+  ]
+}

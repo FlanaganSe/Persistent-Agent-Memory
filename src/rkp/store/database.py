@@ -10,14 +10,18 @@ from rkp.core.errors import MigrationError
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
-def open_database(path: Path) -> sqlite3.Connection:
+def open_database(path: Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
     """Open (or create) a SQLite database with production PRAGMAs.
 
     Creates parent directories if needed. Returns a connection with
     WAL mode, busy_timeout, and other performance settings applied.
+
+    Set check_same_thread=False when the connection will be shared across
+    threads (e.g., MCP server where FastMCP dispatches tools to a threadpool).
+    This is safe with WAL mode + busy_timeout.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     _apply_pragmas(conn)
     return conn

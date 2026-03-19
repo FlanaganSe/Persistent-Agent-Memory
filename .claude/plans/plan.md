@@ -190,7 +190,7 @@ _(Same as build research §2.3 — see Appendix B for full directory structure.)
 
 _Goal: Get from zero to a working end-to-end vertical slice — config → claims → AGENTS.md preview → MCP query — as fast as possible, so architectural blockers surface early._
 
-- [ ] **M1: Scaffolding + domain model + schema + security foundations**
+- [x] **M1: Scaffolding + domain model + schema + security foundations**
   - pyproject.toml with all dependencies, tool configs (ruff, pyright, pytest, hatch)
   - noxfile.py with lint, typecheck, test sessions
   - `src/rkp/core/types.py` — all StrEnums. **Corrected**: `DECLARED_IMPORTED_UNREVIEWED` at precedence 3.5 (below `executable-config`/`ci-observed` at 3, above `checked-in-docs` at 4). `ArtifactOwnership` enum: `imported-human-owned`, `managed-by-rkp`, `mixed-migration`.
@@ -211,7 +211,13 @@ _Goal: Get from zero to a working end-to-end vertical slice — config → claim
   - **Verification**: `nox -s lint typecheck test` passes. Core types instantiate. Claim ID generation is deterministic. Claim CRUD stores/retrieves with full fidelity. Path traversal prevention blocks escapes. Safe YAML enforcement tested.
   - **AC coverage**: AC-15 (no cloud dependency by design), partial AC-14 (data boundary design)
 
-- [ ] **M2: First vertical slice — config → claims → AGENTS.md preview → MCP tool**
+- [x] **M2: First vertical slice — config → claims → AGENTS.md preview → MCP tool**
+  - [x] Step 1 — Config parsers + command extractor + orchestrator → verify: `pytest tests/unit/test_config_parsers.py tests/unit/test_commands_extractor.py tests/integration/test_orchestrator.py -v`
+  - [x] Step 2 — Projection engine (sensitivity, budget, capability, engine, adapters) → verify: `pytest tests/snapshot/ tests/unit/test_sensitivity.py tests/unit/test_budget.py -v`
+  - [x] Step 3 — MCP server (response, mcp, tools) → verify: `pytest tests/integration/test_mcp_contract.py -v`
+  - [x] Step 4 — CLI (app, preview, serve) → verify: `pytest tests/integration/test_cli.py -v`
+  - [x] Step 5 — Full verification → verify: `ruff check src tests && ruff format --check src tests && pyright && pytest`
+  Commit: "feat: M2 first vertical slice — config→claims→AGENTS.md→MCP"
   - `src/rkp/indexer/config_parsers/pyproject.py` + `package_json.py` — two config parsers only
   - `src/rkp/indexer/extractors/commands.py` — command extraction with evidence levels (discovered, prerequisites-extracted) and risk classes (safe-readonly through destructive)
   - `src/rkp/indexer/orchestrator.py` — minimal: parse config files → extract commands → build claims → store
