@@ -12,7 +12,13 @@ from typing import Any
 import structlog
 from fastmcp import Context, FastMCP
 
-from rkp.server.tools import get_conventions, get_prerequisites, get_validated_commands
+from rkp.server.tools import (
+    get_conflicts,
+    get_conventions,
+    get_module_info,
+    get_prerequisites,
+    get_validated_commands,
+)
 from rkp.store.database import open_database, run_migrations
 
 logger = structlog.get_logger()
@@ -106,6 +112,44 @@ def get_prerequisites_tool(
     return json.dumps(response.to_dict(), indent=2)
 
 
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_module_info_tool(
+    ctx: Context,
+    path_or_symbol: str,
+) -> str:
+    """Get module boundary info, dependencies, dependents, and test locations.
+
+    Args:
+        path_or_symbol: A file path or module name to look up
+
+    Returns:
+        JSON response with module boundary, dependency graph, test locations,
+        and applicable scoped rules.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_module_info(db, path_or_symbol=path_or_symbol)
+    return json.dumps(response.to_dict(), indent=2)
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_conflicts_tool(
+    ctx: Context,
+    path_or_scope: str = "**",
+) -> str:
+    """Get conflict claims where declared and inferred knowledge disagree.
+
+    Args:
+        path_or_scope: Path or scope filter (default: ** for all)
+
+    Returns:
+        JSON response with conflict claims including conflicting claim references
+        and suggested resolution type.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_conflicts(db, path_or_scope=path_or_scope)
+    return json.dumps(response.to_dict(), indent=2)
+
+
 def create_server(
     *,
     db: sqlite3.Connection | None = None,
@@ -163,6 +207,26 @@ def create_server(
             """Get environment prerequisites and profiles."""
             db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
             response = get_prerequisites(db_conn, command_or_scope=command_or_scope)
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_module_info_tool", annotations={"readOnlyHint": True})
+        def _test_get_module_info(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            path_or_symbol: str,
+        ) -> str:
+            """Get module boundary info, dependencies, dependents, and test locations."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_module_info(db_conn, path_or_symbol=path_or_symbol)
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_conflicts_tool", annotations={"readOnlyHint": True})
+        def _test_get_conflicts(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            path_or_scope: str = "**",
+        ) -> str:
+            """Get conflict claims."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_conflicts(db_conn, path_or_scope=path_or_scope)
             return json.dumps(response.to_dict(), indent=2)
 
         return test_server

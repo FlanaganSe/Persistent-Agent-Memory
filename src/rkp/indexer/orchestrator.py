@@ -10,9 +10,11 @@ from pathlib import Path
 import structlog
 
 from rkp.core.claim_builder import ClaimBuilder
+from rkp.core.errors import DuplicateClaimError
 from rkp.core.models import Claim, EnvironmentProfile, Provenance
-from rkp.core.types import ClaimType, ReviewState
+from rkp.core.types import ClaimType, ReviewState, SourceAuthority
 from rkp.git.backend import GitBackend
+from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.indexer.config_parsers.docker_compose import ParsedComposeFile, parse_docker_compose
 from rkp.indexer.config_parsers.dockerfile import ParsedDockerfile, parse_dockerfile
 from rkp.indexer.config_parsers.github_actions import (
@@ -24,17 +26,20 @@ from rkp.indexer.config_parsers.makefile import parse_makefile
 from rkp.indexer.config_parsers.package_json import PackageJsonResult, parse_package_json
 from rkp.indexer.config_parsers.pyproject import PyprojectResult, parse_pyproject
 from rkp.indexer.config_parsers.version_files import parse_version_files
+from rkp.indexer.extractors.boundaries import BoundaryClaimInput, extract_boundaries
 from rkp.indexer.extractors.ci_evidence import extract_ci_evidence
 from rkp.indexer.extractors.commands import (
     CommandClaimInput,
     ParsedCommand,
     extract_command_claims,
 )
+from rkp.indexer.extractors.conflicts import ConflictClaimInput, detect_conflicts
 from rkp.indexer.extractors.conventions import (
     ConventionClaimInput,
     extract_conventions,
     extract_js_conventions,
 )
+from rkp.indexer.extractors.docs_evidence import extract_docs_evidence
 from rkp.indexer.extractors.prerequisites import PrerequisiteClaimInput, extract_prerequisites
 from rkp.indexer.parsers.javascript import ParsedJavaScriptFile, parse_javascript_file
 from rkp.indexer.parsers.python import ParsedPythonFile, parse_python_file
@@ -85,6 +90,10 @@ class ExtractionSummary:
     ci_commands_found: int = 0
     prerequisites_extracted: int = 0
     profiles_created: int = 0
+    modules_detected: int = 0
+    edges_created: int = 0
+    docs_commands_found: int = 0
+    conflicts_detected: int = 0
     warnings: tuple[str, ...] = ()
 
 
@@ -180,18 +189,23 @@ def run_extraction(
     repo_id: str = "",
     branch: str = "main",
     git_backend: GitBackend | None = None,
+    graph: SqliteRepoGraph | None = None,
 ) -> ExtractionSummary:
     """Run the extraction pipeline on a repo.
 
     Pipeline order:
-    1. Config parsers (pyproject.toml, package.json, Makefile)
-    2. Docker parsers (Dockerfile, docker-compose)
-    3. CI parsers (GitHub Actions workflows)
-    4. Version files
-    5. CI evidence cross-referencing
-    6. Prerequisite extraction + environment profiles
-    7. Code parsers (Python, JS/TS tree-sitter)
-    8. Convention extraction
+    1.  Config parsers (pyproject.toml, package.json, Makefile)
+    2.  Docker parsers (Dockerfile, docker-compose)
+    3.  CI parsers (GitHub Actions workflows)
+    4.  Version files
+    5.  Docs evidence extraction (README, docs/)
+    6.  CI evidence cross-referencing
+    7.  Prerequisite extraction + environment profiles
+    8.  Python code parsing
+    9.  JS/TS code parsing
+    10. Convention extraction
+    11. Boundary extraction + graph construction
+    12. Conflict detection
     """
     builder = ClaimBuilder(repo_id=repo_id, branch=branch)
     config_files = _discover_config_files(repo_root)
@@ -232,12 +246,22 @@ def run_extraction(
     # Phase 4: Version files
     version_files = parse_version_files(repo_root)
 
-    # Phase 5: CI evidence cross-referencing
+    # Phase 5: Docs evidence extraction
+    docs_result = extract_docs_evidence(repo_root)
+    docs_command_claims = _build_command_claims(builder, list(docs_result.commands))
+
+    # Phase 6: CI evidence cross-referencing
     ci_result = extract_ci_evidence(workflows, all_parsed_commands)
 
     # Build initial command claims (discovered level)
     claim_inputs = extract_command_claims(tuple(all_parsed_commands))
     new_claims = _build_command_claims(builder, claim_inputs)
+
+    # Add docs commands (cross-reference: skip if already discovered from config)
+    config_command_contents = {c.content.strip().lower() for c in new_claims}
+    for docs_claim in docs_command_claims:
+        if docs_claim.content.strip().lower() not in config_command_contents:
+            new_claims.append(docs_claim)
 
     # Upgrade commands that appear in CI
     for upgraded in ci_result.upgraded_commands:
@@ -249,7 +273,7 @@ def run_extraction(
         ci_claims = _build_command_claims(builder, [ci_cmd])
         new_claims.extend(ci_claims)
 
-    # Phase 6: Prerequisites + environment profiles
+    # Phase 7: Prerequisites + environment profiles
     prereq_result = extract_prerequisites(
         pyproject=pyproject_result,
         pkg_engines=pkg_result.engines if pkg_result is not None else None,
@@ -262,8 +286,21 @@ def run_extraction(
     prereq_claims = _build_prerequisite_claims(builder, list(prereq_result.claims))
     new_claims.extend(prereq_claims)
 
+    # Build prerequisite claims from docs evidence
+    for docs_prereq in docs_result.prerequisites:
+        prereq_claim = builder.build(
+            content=docs_prereq.content,
+            claim_type=ClaimType.ENVIRONMENT_PREREQUISITE,
+            source_authority=SourceAuthority.CHECKED_IN_DOCS,
+            scope="**",
+            applicability=("all",),
+            confidence=0.7,
+            evidence=(docs_prereq.evidence_file,),
+            provenance=Provenance(extraction_version="0.1.0", timestamp=""),
+        )
+        new_claims.append(prereq_claim)
+
     # Store environment profiles
-    # Store profiles directly via the db connection from SqliteClaimStore
     from rkp.store.claims import SqliteClaimStore
 
     db_conn: sqlite3.Connection | None = None
@@ -271,7 +308,7 @@ def run_extraction(
         db_conn = claim_store.connection
     profiles_created = _store_profiles(db_conn, prereq_result.profiles, repo_id)
 
-    # Phase 7: Parse Python files for conventions
+    # Phase 8: Parse Python files
     python_files = _discover_python_files(repo_root, git_backend)
     parsed_python: list[ParsedPythonFile] = []
     for rel_path in python_files:
@@ -285,7 +322,7 @@ def run_extraction(
     convention_claims = _build_convention_claims(builder, convention_inputs)
     new_claims.extend(convention_claims)
 
-    # Phase 8: Parse JS/TS files for conventions
+    # Phase 9: Parse JS/TS files
     js_files = _discover_js_files(repo_root, git_backend)
     parsed_js: list[ParsedJavaScriptFile] = []
     for rel_path in js_files:
@@ -299,12 +336,42 @@ def run_extraction(
     js_convention_claims = _build_convention_claims(builder, js_convention_inputs)
     new_claims.extend(js_convention_claims)
 
+    # Phase 10: Boundary extraction + graph construction
+    modules_detected = 0
+    edges_created = 0
+    if graph is not None:
+        graph.clear(repo_id)
+        boundary_result = extract_boundaries(
+            repo_root=repo_root,
+            parsed_python=parsed_python,
+            parsed_js=parsed_js,
+            graph=graph,
+            repo_id=repo_id,
+        )
+        modules_detected = boundary_result.modules_detected
+        edges_created = boundary_result.edges_created
+        boundary_claims = _build_boundary_claims(builder, list(boundary_result.claims))
+        new_claims.extend(boundary_claims)
+
     # Deduplicate and store
     existing_claims = claim_store.list_claims(repo_id=repo_id)
     unique, duplicates = builder.deduplicate(new_claims, existing_claims)
 
     for claim in unique:
         claim_store.save(claim)
+
+    # Phase 11: Conflict detection (needs all claims stored)
+    conflicts_detected = 0
+    all_claims_for_conflicts = claim_store.list_claims(repo_id=repo_id)
+    conflict_result = detect_conflicts(all_claims_for_conflicts)
+    if conflict_result.conflicts:
+        conflict_claims = _build_conflict_claims(builder, list(conflict_result.conflicts))
+        for cc in conflict_claims:
+            try:
+                claim_store.save(cc)
+                conflicts_detected += 1
+            except DuplicateClaimError:
+                pass
 
     total_files = (
         len(config_files)
@@ -313,6 +380,7 @@ def run_extraction(
         + len(workflow_paths)
         + len(python_files)
         + len(js_files)
+        + docs_result.files_scanned
     )
 
     logger.info(
@@ -326,6 +394,10 @@ def run_extraction(
         ci_commands=len(ci_result.upgraded_commands) + len(ci_result.new_ci_commands),
         prerequisites=len(prereq_claims),
         profiles=profiles_created,
+        modules=modules_detected,
+        edges=edges_created,
+        docs_commands=len(docs_result.commands),
+        conflicts=conflicts_detected,
     )
 
     return ExtractionSummary(
@@ -338,6 +410,10 @@ def run_extraction(
         ci_commands_found=len(ci_result.upgraded_commands) + len(ci_result.new_ci_commands),
         prerequisites_extracted=len(prereq_claims),
         profiles_created=profiles_created,
+        modules_detected=modules_detected,
+        edges_created=edges_created,
+        docs_commands_found=len(docs_result.commands),
+        conflicts_detected=conflicts_detected,
         warnings=tuple(warnings),
     )
 
@@ -411,6 +487,49 @@ def _build_prerequisite_claims(
                 timestamp="",
             ),
         )
+        claims.append(claim)
+    return claims
+
+
+def _build_boundary_claims(builder: ClaimBuilder, inputs: list[BoundaryClaimInput]) -> list[Claim]:
+    """Build claims from boundary extractor inputs."""
+    claims: list[Claim] = []
+    for inp in inputs:
+        claim = builder.build(
+            content=inp.content,
+            claim_type=ClaimType.MODULE_BOUNDARY,
+            source_authority=inp.source_authority,
+            scope=inp.scope,
+            applicability=(),
+            confidence=inp.confidence,
+            evidence=inp.evidence_files,
+            provenance=Provenance(
+                extraction_version="0.1.0",
+                timestamp="",
+            ),
+        )
+        claims.append(claim)
+    return claims
+
+
+def _build_conflict_claims(builder: ClaimBuilder, inputs: list[ConflictClaimInput]) -> list[Claim]:
+    """Build claims from conflict detector inputs."""
+    claims: list[Claim] = []
+    for inp in inputs:
+        claim = builder.build(
+            content=inp.content,
+            claim_type=ClaimType.CONFLICT,
+            source_authority=inp.source_authority,
+            scope=inp.scope,
+            applicability=(),
+            confidence=inp.confidence,
+            evidence=inp.evidence_claim_ids,
+            provenance=Provenance(
+                extraction_version="0.1.0",
+                timestamp="",
+            ),
+        )
+        claim = replace(claim, review_state=ReviewState.NEEDS_DECLARATION)
         claims.append(claim)
     return claims
 

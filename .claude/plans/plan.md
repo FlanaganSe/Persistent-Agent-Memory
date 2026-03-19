@@ -264,13 +264,12 @@ _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MC
   - **Verification**: Commands from pyproject.toml, package.json, Makefile, and GitHub Actions extracted with correct evidence levels. Prerequisites aggregated into environment profiles. CI evidence cross-referenced. `get_prerequisites` returns structured profiles.
   - **AC coverage**: AC-7 (get_prerequisites with CI evidence), AC-25 (GitHub Actions parsed), partial AC-6 (extended evidence levels)
 
-- [ ] **M5: Module boundaries + checked-in-docs evidence + conflict detection**
-  - `src/rkp/indexer/extractors/boundaries.py` — top-level packages, import-based dependency edges, test location mapping
-  - `src/rkp/graph/repo_graph.py` — SQLite edges + in-memory adjacency maps: add_edge, get_dependencies, get_dependents, get_test_locations, path_to_module
-  - `src/rkp/indexer/extractors/docs_evidence.py` — parse README, docs/ files with explicit command blocks, ADRs. Source authority: `checked-in-docs` (precedence 4). Only extract operational, repo-specific, plausibly current content. Per build research §5.10: "Not all documentation should become claims."
-  - `src/rkp/indexer/extractors/conflicts.py` — declared-vs-inferred mismatch detection (after all extractors run)
-  - Extend MCP: `get_module_info` (boundaries, dependencies, test locations, ownership hints), `get_conflicts`
-  - `tests/fixtures/with_conflicts/`
+- [x] **M5: Module boundaries + checked-in-docs evidence + conflict detection**
+  - [x] Step 1 — RepoGraph (done) (Protocol + SqliteRepoGraph) + boundary extractor + docs evidence extractor + conflict detector → verify: `ruff check src/rkp/graph src/rkp/indexer/extractors/boundaries.py src/rkp/indexer/extractors/docs_evidence.py src/rkp/indexer/extractors/conflicts.py && pyright src/rkp/graph src/rkp/indexer/extractors/boundaries.py src/rkp/indexer/extractors/docs_evidence.py src/rkp/indexer/extractors/conflicts.py`
+  - [x] Step 2 — Extend orchestrator + MCP tools (get_module_info, get_conflicts)
+  - [x] Step 3 — Test fixtures (extend simple_python, simple_js; create with_conflicts) + all tests (319 pass)
+  - [x] Step 4 — Full verification (ruff, format, pyright, pytest — all clean)
+  Commit: "feat: M5 module boundaries, docs evidence, conflict detection"
   - **Verification**: Module boundaries correctly identified. Import-based dependencies match manual inspection. Checked-in-docs evidence extracted with correct authority. Conflicts surfaced where declared and inferred diverge.
   - **AC coverage**: AC-5 (get_module_info), partial AC-2 (checked-in-docs authority tier active), AC-16 (unsupported areas reported explicitly)
 

@@ -1,0 +1,13 @@
+{
+  "description": "Expected claims from with_conflicts fixture — intentional contradictions",
+  "expected_conflicts": [
+    {
+      "conflict_type": "version",
+      "description": "Python version conflict: .python-version says 3.11, pyproject.toml says >=3.12"
+    },
+    {
+      "conflict_type": "command",
+      "description": "README says 'npm test' but package.json has no test script"
+    }
+  ]
+}
