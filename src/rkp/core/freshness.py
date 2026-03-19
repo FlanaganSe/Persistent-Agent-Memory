@@ -54,6 +54,72 @@ def effective_confidence(claim: Claim, config: RkpConfig) -> float:
     return claim.confidence * (1.0 - config.confidence_reduction_on_stale)
 
 
+def _check_evidence_via_git_diff(
+    claim: Claim,
+    git: GitBackend,
+    index_metadata: IndexMetadata,
+    last_validated_str: str,
+    days_since: int,
+    file_hash_cache: dict[str, str | None],
+) -> FreshnessState:
+    """Fallback freshness check using git diff between indexed HEAD and current HEAD.
+
+    Used when claim_evidence table has no records for this claim but the claim
+    has evidence file paths stored in its evidence tuple.
+    """
+    current_head = git.head()
+    if current_head == index_metadata.repo_head:
+        # Same HEAD — no files could have changed
+        return FreshnessState(
+            last_validated=last_validated_str,
+            revalidation_trigger=None,
+            stale=False,
+            staleness_reason=None,
+            evidence_current=True,
+            days_since_validation=days_since,
+        )
+
+    # Get the set of files changed between indexed HEAD and current HEAD
+    cache_key = f"__diff__{index_metadata.repo_head}__{current_head}"
+    if cache_key in file_hash_cache:
+        # We cached the diff result set as a comma-separated string
+        changed_set = set(str(file_hash_cache[cache_key] or "").split(","))
+    else:
+        changed_set = git.changed_files_between(index_metadata.repo_head, current_head)
+        # Store in cache as comma-separated (cache values are str | None)
+        file_hash_cache[cache_key] = ",".join(changed_set) if changed_set else ""
+
+    # Normalize evidence paths (some may be absolute, some relative)
+    repo_root_str = str(git.repo_root())
+    changed_evidence: list[str] = []
+    for ev_path in claim.evidence:
+        # Normalize to relative path
+        rel = ev_path
+        if ev_path.startswith(repo_root_str):
+            rel = ev_path[len(repo_root_str) :].lstrip("/")
+        if rel in changed_set:
+            changed_evidence.append(rel)
+
+    if changed_evidence:
+        return FreshnessState(
+            last_validated=last_validated_str,
+            revalidation_trigger="evidence-changed",
+            stale=True,
+            staleness_reason=f"Evidence file(s) changed: {', '.join(changed_evidence)}",
+            evidence_current=False,
+            days_since_validation=days_since,
+        )
+
+    return FreshnessState(
+        last_validated=last_validated_str,
+        revalidation_trigger=None,
+        stale=False,
+        staleness_reason=None,
+        evidence_current=True,
+        days_since_validation=days_since,
+    )
+
+
 def check_claim_freshness(
     claim: Claim,
     evidence_store: SqliteEvidenceStore,
@@ -104,6 +170,17 @@ def check_claim_freshness(
     # Evidence hash comparison
     evidence_records = evidence_store.get_for_claim(claim.id)
     if not evidence_records:
+        # Fallback: use claim's evidence file paths + git diff when claim_evidence
+        # table is not populated (common for extracted claims).
+        if claim.evidence and index_metadata and index_metadata.repo_head:
+            return _check_evidence_via_git_diff(
+                claim,
+                git,
+                index_metadata,
+                last_validated_str,
+                days_since,
+                file_hash_cache if file_hash_cache is not None else {},
+            )
         return FreshnessState(
             last_validated=last_validated_str,
             revalidation_trigger=None,

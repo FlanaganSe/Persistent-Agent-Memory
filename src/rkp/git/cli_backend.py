@@ -111,6 +111,13 @@ class CliGitBackend:
             return ""
         return result.stdout.strip()
 
+    def changed_files_between(self, old_ref: str, new_ref: str) -> set[str]:
+        """Return set of file paths changed between two refs."""
+        result = self._run("diff", "--name-only", old_ref, new_ref)
+        if result.returncode != 0:
+            return set()
+        return {line.strip() for line in result.stdout.strip().splitlines() if line.strip()}
+
     def diff_status(self) -> list[tuple[str, Path]]:
         """Return staged+unstaged changes as (status, path) pairs."""
         result = self._run("diff", "--name-status", "HEAD")
