@@ -44,6 +44,13 @@ def quality(session: nox.Session) -> None:
 
 
 @nox.session(python="3.12")
+def docs(session: nox.Session) -> None:
+    """Build documentation."""
+    session.install(".[dev]")
+    session.run("mkdocs", "build", "--strict")
+
+
+@nox.session(python="3.12")
 def ci(session: nox.Session) -> None:
     """Run all CI checks."""
     session.notify("lint")

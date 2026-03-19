@@ -1,0 +1,54 @@
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv pip install ".[dev]" --system
+
+      - name: Lint
+        run: |
+          ruff check src tests noxfile.py
+          ruff format --check src tests noxfile.py
+
+      - name: Typecheck
+        run: pyright
+
+      - name: Test
+        run: pytest tests/ -v
+
+      - name: Build package
+        run: uv build
+
+      - name: Generate SBOM
+        run: |
+          uv pip install "cyclonedx-bom>=4.0,<5.0" --system
+          cyclonedx-py environment -o sbom.json --format json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

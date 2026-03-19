@@ -35,6 +35,8 @@ dev = [
     "pytest-cov>=6.0.0",
     "pytest-benchmark>=5.0.0",
     "nox>=2024.0.0",
+    "mkdocs-material>=9.0.0",
+    "towncrier>=24.0.0",
 ]
 
 [project.scripts]
@@ -67,3 +69,31 @@ venv = ".venv"
 testpaths = ["tests"]
 pythonpath = ["src"]
 norecursedirs = ["tests/fixtures"]
+
+[tool.towncrier]
+package = "rkp"
+package_dir = "src"
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+template = "changelog.d/template.md"
+title_format = "## [{version}] - {project_date}"
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking Changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "doc"
+name = "Documentation"
+showcontent = true
