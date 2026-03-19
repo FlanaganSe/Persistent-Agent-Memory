@@ -59,6 +59,8 @@ def render_claim(
     terse   — id, content_preview (100 chars), claim_type, confidence
     normal  — all claim fields except raw evidence blobs (default)
     detailed — all fields + evidence chain from EvidenceStore
+
+    Unknown values are treated as "normal".
     """
     if detail_level == "terse":
         return {
@@ -111,15 +113,23 @@ def paginate_claims(
     *,
     limit: int = 50,
     cursor: str | None = None,
+    pre_sorted: bool = False,
 ) -> tuple[list[Claim], str | None, bool, int]:
-    """Cursor-based pagination on a sorted claim list.
+    """Cursor-based pagination on a claim list.
+
+    If pre_sorted=False (default), sorts by ID for stable ordering.
+    If pre_sorted=True, preserves the caller's sort order and uses ID
+    only for the cursor comparison (the list must still have unique IDs).
 
     Returns (page_items, next_cursor, has_more, total_count).
     """
+    # Clamp limit to a sane range
+    limit = max(1, min(limit, 500))
     total = len(claims)
-    # Stable ordering by ID (lexicographic on content-addressable hash)
-    claims = sorted(claims, key=lambda c: c.id)
+    if not pre_sorted:
+        claims = sorted(claims, key=lambda c: c.id)
     if cursor is not None:
+        # Skip past the cursor position (find first item with id > cursor)
         claims = [c for c in claims if c.id > cursor]
     has_more = len(claims) > limit
     page = claims[:limit]
@@ -256,7 +266,9 @@ def get_conventions(
     all_conventions.sort(key=lambda c: (source_authority_precedence(c.source_authority), c.id))
     all_conventions = enforce_allowlist(all_conventions, allowlist)
 
-    page, nc, hm, total = paginate_claims(all_conventions, limit=limit, cursor=cursor)
+    page, nc, hm, total = paginate_claims(
+        all_conventions, limit=limit, cursor=cursor, pre_sorted=True
+    )
 
     items: list[dict[str, Any]] = []
     for claim in page:

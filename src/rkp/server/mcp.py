@@ -72,8 +72,8 @@ def _ctx_config(ctx: Context) -> RkpConfig:
     return ctx.lifespan_context.get("config", RkpConfig())
 
 
-def _ctx_repo_root(ctx: Context) -> Path:
-    return ctx.lifespan_context.get("repo_root", Path())
+def _ctx_repo_root(ctx: Context) -> Path | None:
+    return ctx.lifespan_context.get("repo_root")
 
 
 def _json(resp: Any) -> str:
