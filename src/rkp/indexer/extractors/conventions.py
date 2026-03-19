@@ -492,6 +492,130 @@ def extract_conventions(
     return claims
 
 
+# --- Path-scoped convention refinement ---
+
+
+@dataclass(frozen=True)
+class GlobalConventionSummary:
+    """Summary of global conventions for deviation comparison."""
+
+    func_naming: str | None  # e.g., "snake_case"
+    class_naming: str | None  # e.g., "PascalCase"
+
+
+def summarize_global_conventions(claims: list[ConventionClaimInput]) -> GlobalConventionSummary:
+    """Extract the dominant naming conventions from global claims."""
+    func_naming: str | None = None
+    class_naming: str | None = None
+    for claim in claims:
+        if "function names" in claim.content:
+            for style in ("snake_case", "camelCase", "PascalCase", "SCREAMING_SNAKE"):
+                if style in claim.content:
+                    func_naming = style
+                    break
+        elif "class names" in claim.content:
+            for style in ("snake_case", "camelCase", "PascalCase", "SCREAMING_SNAKE"):
+                if style in claim.content:
+                    class_naming = style
+                    break
+    return GlobalConventionSummary(func_naming=func_naming, class_naming=class_naming)
+
+
+def extract_scoped_conventions(
+    parsed_files: list[ParsedPythonFile],
+    module_paths: list[str],
+    global_summary: GlobalConventionSummary,
+    *,
+    tools_detected: frozenset[str] = frozenset(),
+) -> list[ConventionClaimInput]:
+    """Extract per-module convention claims that DEVIATE from global conventions.
+
+    Only creates scoped claims when a module's dominant convention differs
+    from the global convention and meets the minimum sample size threshold.
+    """
+    scoped_claims: list[ConventionClaimInput] = []
+
+    for module_path in sorted(module_paths):
+        # Collect files belonging to this module
+        module_files = [
+            pf
+            for pf in parsed_files
+            if pf.path.replace("\\", "/").startswith(module_path.rstrip("/") + "/")
+            or pf.path.replace("\\", "/") == module_path
+        ]
+        if not module_files:
+            continue
+
+        # Collect function names for this module
+        func_names: list[str] = []
+        func_evidence: list[str] = []
+        class_names: list[str] = []
+
+        for pf in module_files:
+            has_funcs = False
+            for func in pf.functions:
+                if not func.name.startswith("test_"):
+                    func_names.append(func.name)
+                    has_funcs = True
+            class_names.extend(cls.name for cls in pf.classes)
+            if has_funcs:
+                func_evidence.append(pf.path)
+
+        # Check function naming deviation
+        func_stats = _compute_naming_stats(func_names, "function names")
+        if (
+            func_stats.total >= MIN_SAMPLE_SIZE
+            and func_stats.consistency >= WEAK_THRESHOLD
+            and func_stats.dominant_style is not None
+            and func_stats.dominant_style != global_summary.func_naming
+        ):
+            has_formatter = bool(tools_detected & _FORMATTER_TOOLS)
+            if not (has_formatter and func_stats.dominant_style == "snake_case"):
+                authority = _authority_for_confidence(func_stats.consistency)
+                scoped_claims.append(
+                    ConventionClaimInput(
+                        content=f"Use {func_stats.dominant_style} for function names "
+                        f"({func_stats.consistency:.0%} consistency across "
+                        f"{func_stats.total} identifiers)",
+                        claim_type=ClaimType.SCOPED_RULE,
+                        source_authority=authority,
+                        scope=module_path,
+                        applicability=("all",),
+                        confidence=round(func_stats.consistency, 4),
+                        sensitivity=Sensitivity.PUBLIC,
+                        evidence_files=tuple(func_evidence[:10]),
+                        review_state_hint=_review_hint_for_confidence(func_stats.consistency),
+                    )
+                )
+
+        # Check class naming deviation
+        class_stats = _compute_naming_stats(class_names, "class names")
+        if (
+            class_stats.total >= MIN_SAMPLE_SIZE
+            and class_stats.consistency >= WEAK_THRESHOLD
+            and class_stats.dominant_style is not None
+            and class_stats.dominant_style != global_summary.class_naming
+        ):
+            authority = _authority_for_confidence(class_stats.consistency)
+            scoped_claims.append(
+                ConventionClaimInput(
+                    content=f"Use {class_stats.dominant_style} for class names "
+                    f"({class_stats.consistency:.0%} consistency across "
+                    f"{class_stats.total} identifiers)",
+                    claim_type=ClaimType.SCOPED_RULE,
+                    source_authority=authority,
+                    scope=module_path,
+                    applicability=("all",),
+                    confidence=round(class_stats.consistency, 4),
+                    sensitivity=Sensitivity.PUBLIC,
+                    evidence_files=tuple(pf.path for pf in module_files[:10]),
+                    review_state_hint=_review_hint_for_confidence(class_stats.consistency),
+                )
+            )
+
+    return scoped_claims
+
+
 # --- Test framework detection for JS/TS ---
 
 _JS_TEST_FRAMEWORKS: dict[str, str] = {

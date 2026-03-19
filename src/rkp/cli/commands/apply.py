@@ -26,11 +26,13 @@ from rkp.core.types import ReviewState
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.adapters.copilot import CopilotAdapter, validate_setup_steps
+from rkp.projection.adapters.cursor import CursorAdapter
+from rkp.projection.adapters.windsurf import WindsurfAdapter
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.store.claims import SqliteClaimStore
 
-_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot")
+_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot", "cursor", "windsurf")
 
 _MAX_PREVIEW_LINES = 20
 
@@ -50,6 +52,10 @@ def _artifact_type_for_path(path: str) -> str:
         return "scoped-rule"
     if path.startswith(".github/instructions/"):
         return "scoped-instruction"
+    if path.startswith(".cursor/rules/"):
+        return "cursor-rule"
+    if path.startswith(".windsurf/rules/"):
+        return "windsurf-rule"
     if "copilot-setup-steps" in path:
         return "setup-steps"
     if path in ("CLAUDE.md", "AGENTS.md", ".github/copilot-instructions.md"):
@@ -78,7 +84,9 @@ def _load_owned_artifacts(
 
 def apply(
     ctx: typer.Context,
-    host: str = typer.Option("claude", help="Target host (codex, agents-md, claude, copilot)"),
+    host: str = typer.Option(
+        "claude", help="Target host (codex, agents-md, claude, copilot, cursor, windsurf)"
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would change without writing"
     ),
@@ -117,11 +125,20 @@ def apply(
             raise typer.Exit(code=1)
 
         # Select adapter
-        adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
+        adapter: (
+            AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter
+        )
         if host == "claude":
             adapter = ClaudeMdAdapter()
         elif host == "copilot":
             adapter = CopilotAdapter()
+        elif host == "cursor":
+            adapter = CursorAdapter()
+        elif host == "windsurf":
+            from rkp.server.tools import get_agents_md_claim_ids
+
+            agents_ids = get_agents_md_claim_ids(approved_claims)
+            adapter = WindsurfAdapter(agents_md_claim_ids=agents_ids)
         else:
             adapter = AgentsMdAdapter()
 
@@ -158,8 +175,8 @@ def apply(
                 # Remove setup-steps from files to write
                 del files[setup_steps_path]
 
-        # Copilot-specific: respect artifact ownership for imported-human-owned files
-        if host == "copilot":
+        # Respect artifact ownership for imported-human-owned files
+        if host in ("copilot", "cursor", "windsurf"):
             owned_artifacts = _load_owned_artifacts(db)
             for owned_path in owned_artifacts:
                 if owned_path in files:

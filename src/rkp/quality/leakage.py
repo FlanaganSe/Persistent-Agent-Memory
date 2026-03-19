@@ -11,10 +11,14 @@ from rkp.core.types import ClaimType, Sensitivity, SourceAuthority
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.adapters.copilot import CopilotAdapter
+from rkp.projection.adapters.cursor import CursorAdapter
+from rkp.projection.adapters.windsurf import WindsurfAdapter
 from rkp.projection.capability_matrix import (
     AGENTS_MD_CAPABILITY,
     CLAUDE_CODE_CAPABILITY,
     COPILOT_CAPABILITY,
+    CURSOR_CAPABILITY,
+    WINDSURF_CAPABILITY,
 )
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.quality.types import LeakageResult
@@ -96,10 +100,18 @@ def _test_projection_leakage(
     """Test all projection adapters for sensitivity leakage."""
     results: list[LeakageResult] = []
 
-    adapters: list[tuple[str, AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter, object]] = [
+    adapters: list[
+        tuple[
+            str,
+            AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter,
+            object,
+        ]
+    ] = [
         ("agents-md", AgentsMdAdapter(), AGENTS_MD_CAPABILITY),
         ("claude", ClaudeMdAdapter(), CLAUDE_CODE_CAPABILITY),
         ("copilot", CopilotAdapter(), COPILOT_CAPABILITY),
+        ("cursor", CursorAdapter(), CURSOR_CAPABILITY),
+        ("windsurf", WindsurfAdapter(), WINDSURF_CAPABILITY),
     ]
 
     policy = ProjectionPolicy(target_sensitivity=Sensitivity.PUBLIC)
@@ -155,6 +167,14 @@ def _test_mcp_tool_leakage(
         (
             "get_instruction_preview:copilot",
             get_instruction_preview(db, consumer="copilot"),
+        ),
+        (
+            "get_instruction_preview:cursor",
+            get_instruction_preview(db, consumer="cursor"),
+        ),
+        (
+            "get_instruction_preview:windsurf",
+            get_instruction_preview(db, consumer="windsurf"),
         ),
     ]
 

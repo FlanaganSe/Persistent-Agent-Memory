@@ -386,11 +386,12 @@ _Goal: Formal quality measurement, adapter maturity promotion, remaining feature
   - **AC coverage**: AC-20 (evidence-triggered + branch-aware + drift-aware revalidation)
 
 - [ ] **M15: Cursor/Windsurf adapters (Alpha) + path-scoped refinement**
-  - `src/rkp/projection/adapters/cursor.py` — .cursor/rules export (alwaysApply + glob-scoped)
-  - `src/rkp/projection/adapters/windsurf.py` — .windsurf/rules export (always_on + glob-scoped)
-  - `src/rkp/importer/parsers/cursor.py` — .cursor/rules import
-  - Path-scoped convention refinement: per-scope analysis (not just global), directory-level projection
-  - Alpha adapter conformance tests
+  - [x] Step 1 — Infrastructure: extend SizeConstraints (workspace_budget_bytes), add Cursor/Windsurf to capability_matrix, extend BudgetTracker for workspace budget → verify: `uv run ruff check src/rkp/projection/capability_matrix.py src/rkp/projection/budget.py && uv run pyright src/rkp/projection/capability_matrix.py src/rkp/projection/budget.py`
+  - [x] Step 2 — Cursor adapter + Windsurf adapter (src/rkp/projection/adapters/cursor.py, windsurf.py) → verify: `uv run ruff check src/rkp/projection/adapters/ && uv run pyright src/rkp/projection/adapters/`
+  - [x] Step 3 — Extend MCP tools (get_instruction_preview for cursor/windsurf), CLI preview/apply, quality harness (conformance + leakage) → verify: `uv run ruff check src/rkp/server/tools.py src/rkp/cli/commands/preview.py src/rkp/cli/commands/apply.py src/rkp/quality/ && uv run pyright src/rkp/server/tools.py src/rkp/cli/commands/preview.py src/rkp/cli/commands/apply.py src/rkp/quality/`
+  - [x] Step 4 — Path-scoped convention refinement (extend conventions.py with per-module analysis) → verify: `uv run ruff check src/rkp/indexer/extractors/conventions.py && uv run pyright src/rkp/indexer/extractors/conventions.py`
+  - [x] Step 5 — Tests: unit (cursor adapter, windsurf adapter, windsurf budget, scoped conventions), snapshot (scoped projection), integration (MCP, CLI, quality, round-trip) → verify: `uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright && uv run pytest`
+  Commit: "feat: M15 Cursor/Windsurf adapters (Alpha) + path-scoped refinement"
   - **Verification**: Cursor and Windsurf exports generate valid formats. Path-scoped rules correctly projected per host. Alpha conformance tests pass.
   - **AC coverage**: AC-8 (extended host coverage)
 

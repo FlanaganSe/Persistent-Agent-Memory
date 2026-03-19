@@ -17,16 +17,20 @@ from rkp.cli.ui.output import print_error
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.adapters.copilot import CopilotAdapter
+from rkp.projection.adapters.cursor import CursorAdapter
+from rkp.projection.adapters.windsurf import WindsurfAdapter
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.store.claims import SqliteClaimStore
 
-_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot")
+_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot", "cursor", "windsurf")
 
 
 def preview(
     ctx: typer.Context,
-    host: str = typer.Option("codex", help="Target host (codex, agents-md, claude, copilot)"),
+    host: str = typer.Option(
+        "codex", help="Target host (codex, agents-md, claude, copilot, cursor, windsurf)"
+    ),
 ) -> None:
     """Preview projected instruction artifact for a target host."""
     state: AppState = ctx.obj
@@ -62,11 +66,20 @@ def preview(
                 )
 
         # Select adapter
-        adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
+        adapter: (
+            AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter
+        )
         if host == "claude":
             adapter = ClaudeMdAdapter()
         elif host == "copilot":
             adapter = CopilotAdapter()
+        elif host == "cursor":
+            adapter = CursorAdapter()
+        elif host == "windsurf":
+            from rkp.server.tools import get_agents_md_claim_ids
+
+            agents_ids = get_agents_md_claim_ids(claims)
+            adapter = WindsurfAdapter(agents_md_claim_ids=agents_ids)
         else:
             adapter = AgentsMdAdapter()
 
@@ -77,7 +90,7 @@ def preview(
         files = result.adapter_result.files
 
         if state.json_output:
-            output = {
+            output: dict[str, object] = {
                 "host": host,
                 "files": files,
                 "excluded_sensitive": result.excluded_sensitive,
@@ -89,6 +102,8 @@ def preview(
             _display_claude_output(files, state.quiet)
         elif host == "copilot":
             _display_copilot_output(files, result.adapter_result.overflow_report, state.quiet)
+        elif host in ("cursor", "windsurf"):
+            _display_rules_output(files, result.adapter_result.overflow_report, host, state.quiet)
         else:
             content = files.get("AGENTS.md", "")
             if not state.quiet:
@@ -195,3 +210,39 @@ def _display_copilot_output(
     if allowlist:
         syntax = Syntax(allowlist, "json", theme="monokai")
         out.print(Panel(syntax, title="Tool Allowlist (suggested config)", border_style="yellow"))
+
+
+def _display_rules_output(
+    files: dict[str, str],
+    overflow_report: dict[str, object],
+    host: str,
+    quiet: bool,
+) -> None:
+    """Display Cursor or Windsurf rule files with Rich panels."""
+    out = Console()
+    prefix = ".cursor/rules/" if host == "cursor" else ".windsurf/rules/"
+
+    if not quiet:
+        total_chars = sum(len(v) for k, v in files.items() if k.startswith(prefix))
+        file_count = sum(1 for k in files if k.startswith(prefix))
+        err_console.print(
+            f"[dim]{host}: {file_count} rule file(s), {total_chars:,} characters total[/dim]"
+        )
+
+        # Show Windsurf budget info
+        if host == "windsurf":
+            ws_budget_raw: object = overflow_report.get("windsurf_budget")
+            if isinstance(ws_budget_raw, dict):
+                ws_dict = cast(dict[str, Any], ws_budget_raw)
+                ws_used_val: int = int(ws_dict.get("workspace_used", 0))
+                ws_limit_val: int = int(ws_dict.get("workspace_limit", 12288))
+                pct = int(ws_used_val / ws_limit_val * 100) if ws_limit_val else 0
+                err_console.print(
+                    f"[dim]Workspace budget: {ws_used_val:,} / {ws_limit_val:,} chars ({pct}%)[/dim]"
+                )
+
+    for path, content in sorted(files.items()):
+        if not path.startswith(prefix):
+            continue
+        border = "green" if "guardrails" in path else "blue" if "commands" in path else "cyan"
+        out.print(Panel(content, title=path, border_style=border))

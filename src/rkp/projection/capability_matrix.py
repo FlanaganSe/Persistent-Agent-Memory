@@ -11,6 +11,7 @@ class SizeConstraints:
 
     hard_budget_bytes: int | None = None
     soft_budget_lines: int | None = None
+    workspace_budget_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,11 +61,38 @@ COPILOT_CAPABILITY = HostCapability(
     ),
 )
 
+CURSOR_CAPABILITY = HostCapability(
+    host_name="cursor",
+    supports_always_on=True,
+    supports_scoped_rules=True,
+    supports_skills=False,
+    supports_env=False,
+    supports_permissions=False,
+    size_constraints=SizeConstraints(
+        soft_budget_lines=500,
+    ),
+)
+
+WINDSURF_CAPABILITY = HostCapability(
+    host_name="windsurf",
+    supports_always_on=True,
+    supports_scoped_rules=True,
+    supports_skills=False,
+    supports_env=False,
+    supports_permissions=False,
+    size_constraints=SizeConstraints(
+        hard_budget_bytes=6144,
+        workspace_budget_bytes=12288,
+    ),
+)
+
 _CAPABILITIES: dict[str, HostCapability] = {
     "agents-md": AGENTS_MD_CAPABILITY,
     "codex": AGENTS_MD_CAPABILITY,
     "claude": CLAUDE_CODE_CAPABILITY,
     "copilot": COPILOT_CAPABILITY,
+    "cursor": CURSOR_CAPABILITY,
+    "windsurf": WINDSURF_CAPABILITY,
 }
 
 

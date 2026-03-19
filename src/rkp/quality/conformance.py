@@ -13,10 +13,14 @@ from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.base import AdapterResult
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.adapters.copilot import CopilotAdapter, validate_setup_steps
+from rkp.projection.adapters.cursor import CursorAdapter
+from rkp.projection.adapters.windsurf import WindsurfAdapter
 from rkp.projection.capability_matrix import (
     AGENTS_MD_CAPABILITY,
     CLAUDE_CODE_CAPABILITY,
     COPILOT_CAPABILITY,
+    CURSOR_CAPABILITY,
+    WINDSURF_CAPABILITY,
     HostCapability,
 )
 from rkp.projection.engine import ProjectionPolicy, project
@@ -40,7 +44,10 @@ _HIGH_AUTHORITY = frozenset(
 
 def _get_adapter_and_capability(
     adapter_name: str,
-) -> tuple[AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter, HostCapability]:
+) -> tuple[
+    AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter,
+    HostCapability,
+]:
     """Get the adapter instance and capability for a given name."""
     if adapter_name == "agents-md":
         return AgentsMdAdapter(), AGENTS_MD_CAPABILITY
@@ -48,6 +55,10 @@ def _get_adapter_and_capability(
         return ClaudeMdAdapter(), CLAUDE_CODE_CAPABILITY
     elif adapter_name == "copilot":
         return CopilotAdapter(), COPILOT_CAPABILITY
+    elif adapter_name == "cursor":
+        return CursorAdapter(), CURSOR_CAPABILITY
+    elif adapter_name == "windsurf":
+        return WindsurfAdapter(), WINDSURF_CAPABILITY
     else:
         msg = f"Unknown adapter: {adapter_name}"
         raise ValueError(msg)
@@ -107,7 +118,65 @@ def _validate_format(adapter_name: str, result: AdapterResult) -> tuple[bool, li
             except json.JSONDecodeError as e:
                 errors.append(f"Invalid tool-allowlist.json: {e}")
 
+    elif adapter_name == "cursor":
+        # Validate each .cursor/rules/ file has valid YAML frontmatter
+        for path, content in result.files.items():
+            if not path.startswith(".cursor/rules/"):
+                continue
+            if not path.startswith(".cursor/rules/rkp-"):
+                errors.append(f"{path}: missing rkp- prefix")
+            if "---" not in content:
+                errors.append(f"{path}: missing YAML frontmatter")
+                continue
+            # Parse frontmatter
+            try:
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    fm = yaml.safe_load(parts[1])
+                    if (
+                        isinstance(fm, dict)
+                        and "alwaysApply" not in fm
+                        and "description" not in fm
+                    ):
+                        errors.append(f"{path}: frontmatter missing alwaysApply or description")
+            except yaml.YAMLError as e:
+                errors.append(f"{path}: invalid YAML frontmatter: {e}")
+
+    elif adapter_name == "windsurf":
+        # Validate each .windsurf/rules/ file has valid trigger frontmatter
+        total_chars = 0
+        for path, content in result.files.items():
+            if not path.startswith(".windsurf/rules/"):
+                continue
+            if not path.startswith(".windsurf/rules/rkp-"):
+                errors.append(f"{path}: missing rkp- prefix")
+            total_chars += len(content)
+            if len(content) > 6144:
+                errors.append(f"{path}: exceeds 6K per-file limit ({len(content)} chars)")
+            if "---" not in content:
+                errors.append(f"{path}: missing YAML frontmatter")
+                continue
+            _validate_windsurf_frontmatter(path, content, errors)
+        if total_chars > 12288:
+            errors.append(f"workspace total {total_chars} chars exceeds 12K limit")
+
     return len(errors) == 0, errors
+
+
+def _validate_windsurf_frontmatter(path: str, content: str, errors: list[str]) -> None:
+    """Validate Windsurf rule file frontmatter."""
+    try:
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            fm: object = yaml.safe_load(parts[1])
+            if isinstance(fm, dict):
+                trigger_val: str = str(fm.get("trigger")) if "trigger" in fm else ""  # type: ignore[operator]
+                if trigger_val not in ("always_on", "glob"):
+                    errors.append(f"{path}: invalid trigger: {trigger_val}")
+                if trigger_val == "glob" and "glob" not in fm:
+                    errors.append(f"{path}: trigger: glob but no glob pattern")
+    except yaml.YAMLError as e:
+        errors.append(f"{path}: invalid YAML frontmatter: {e}")
 
 
 def _check_budget(adapter_name: str, result: AdapterResult) -> bool:
@@ -121,6 +190,21 @@ def _check_budget(adapter_name: str, result: AdapterResult) -> bool:
     elif adapter_name == "copilot":
         content = result.files.get(".github/copilot-instructions.md", "")
         return content.count("\n") <= 350  # soft budget 300 + margin
+    elif adapter_name == "cursor":
+        # Soft budget: 500 lines per rule file
+        for path, content in result.files.items():
+            if path.startswith(".cursor/rules/") and content.count("\n") > 550:
+                return False
+        return True
+    elif adapter_name == "windsurf":
+        # Hard budget: 6K per file, 12K total
+        total = sum(len(v) for k, v in result.files.items() if k.startswith(".windsurf/rules/"))
+        if total > 12288:
+            return False
+        for path, content in result.files.items():
+            if path.startswith(".windsurf/rules/") and len(content) > 6144:
+                return False
+        return True
     return True
 
 

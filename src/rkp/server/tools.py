@@ -20,6 +20,8 @@ from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter, is_enforceable_restriction
 from rkp.projection.adapters.copilot import CopilotAdapter, is_copilot_enforceable
+from rkp.projection.adapters.cursor import CursorAdapter
+from rkp.projection.adapters.windsurf import WindsurfAdapter
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.projection.sensitivity import filter_sensitive
@@ -624,7 +626,7 @@ def get_instruction_preview(
     if capability is None:
         return make_unsupported_response(
             f"Consumer '{consumer}' is not supported. "
-            "Supported: codex, agents-md, claude, copilot",
+            "Supported: codex, agents-md, claude, copilot, cursor, windsurf",
             repo_head=repo_head,
             branch=branch,
         )
@@ -634,13 +636,19 @@ def get_instruction_preview(
     claims = enforce_allowlist(claims, allowlist)
     claims = exclude_local_only(claims)
 
-    adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
+    adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter
     if consumer in ("codex", "agents-md"):
         adapter = AgentsMdAdapter()
     elif consumer == "claude":
         adapter = ClaudeMdAdapter()
     elif consumer == "copilot":
         adapter = CopilotAdapter()
+    elif consumer == "cursor":
+        adapter = CursorAdapter()
+    elif consumer == "windsurf":
+        # Windsurf auto-reads AGENTS.md — deduplicate by projecting AGENTS.md first
+        agents_ids = get_agents_md_claim_ids(claims)
+        adapter = WindsurfAdapter(agents_md_claim_ids=agents_ids)
     else:
         adapter = AgentsMdAdapter()
 
@@ -661,6 +669,27 @@ def get_instruction_preview(
         branch=branch,
         index_version=idx,
     )
+
+
+def get_agents_md_claim_ids(claims: list[Claim]) -> frozenset[str]:
+    """Get IDs of claims that would be included in AGENTS.md projection.
+
+    Used by Windsurf adapter to deduplicate (Windsurf auto-reads AGENTS.md).
+    """
+    from rkp.projection.budget import BudgetTracker
+    from rkp.projection.capability_matrix import AGENTS_MD_CAPABILITY
+
+    budget = BudgetTracker(
+        hard_budget_bytes=AGENTS_MD_CAPABILITY.size_constraints.hard_budget_bytes
+    )
+    agents_adapter = AgentsMdAdapter()
+    agents_adapter.project(
+        claims,
+        AGENTS_MD_CAPABILITY,
+        budget,
+    )
+    # Collect IDs of claims included in AGENTS.md via budget tracker
+    return frozenset(c.id for c, _reason in budget.included)
 
 
 # ---------------------------------------------------------------------------
