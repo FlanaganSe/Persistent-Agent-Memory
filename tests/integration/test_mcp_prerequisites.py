@@ -1,4 +1,4 @@
-"""MCP contract tests for get_prerequisites_tool."""
+"""MCP contract tests for get_prerequisites."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class TestGetPrerequisites:
         """Returns empty prerequisites and profiles on a fresh DB."""
         server = create_server(db=mcp_db)
         async with Client(server) as client:
-            result = await client.call_tool("get_prerequisites_tool", {})
+            result = await client.call_tool("get_prerequisites", {})
             text = _extract_text(result)
             data = json.loads(text)
             assert data["status"] == "ok"
@@ -47,12 +47,14 @@ class TestGetPrerequisites:
         """Response has correct envelope structure."""
         server = create_server(db=mcp_db)
         async with Client(server) as client:
-            result = await client.call_tool("get_prerequisites_tool", {})
+            result = await client.call_tool("get_prerequisites", {})
             text = _extract_text(result)
             data = json.loads(text)
             assert "status" in data
             assert "supported" in data
+            assert "unsupported_reason" in data
             assert "data" in data
+            assert "warnings" in data
             assert "provenance" in data
             # Provenance has expected fields
             provenance = data["provenance"]
@@ -66,7 +68,7 @@ class TestGetPrerequisites:
         """Data contains prerequisites list and profiles list."""
         server = create_server(db=mcp_db)
         async with Client(server) as client:
-            result = await client.call_tool("get_prerequisites_tool", {})
+            result = await client.call_tool("get_prerequisites", {})
             text = _extract_text(result)
             data = json.loads(text)
             inner = data["data"]

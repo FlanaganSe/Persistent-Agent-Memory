@@ -76,6 +76,9 @@ class TestGetModuleInfo:
         d = response.to_dict()
         assert "provenance" in d
         assert "data" in d
+        # Envelope always includes all fields
+        assert "unsupported_reason" in d
+        assert "warnings" in d
 
     def test_module_with_dependencies(self, populated_db):
         """Returns dependencies for a known module."""
@@ -109,28 +112,28 @@ class TestGetConflicts:
         assert "data" in d
 
     def test_conflicts_present(self, populated_db):
-        """Returns conflict claims when they exist."""
+        """Returns conflict claims in paginated form."""
         response = get_conflicts(populated_db)
         data = response.data
-        assert len(data) >= 1
-        conflict = data[0]
+        items = data["items"]
+        assert len(items) >= 1
+        conflict = items[0]
         assert "content" in conflict
         assert "evidence_claim_ids" in conflict
         assert conflict["review_state"] == "needs-declaration"
 
     def test_no_conflicts(self, db):
-        """Returns empty list when no conflicts exist."""
+        """Returns empty paginated data when no conflicts exist."""
         response = get_conflicts(db)
         assert response.status == "ok"
-        assert response.data == []
+        assert response.data["items"] == []
+        assert response.data["has_more"] is False
 
     def test_scoped_filtering(self, populated_db):
         """Scope filtering returns only matching conflicts."""
-        # The conflict is scoped to ** so it should appear in any scope
         response = get_conflicts(populated_db, path_or_scope="**")
-        assert len(response.data) >= 1
+        assert len(response.data["items"]) >= 1
 
-        # Specific scope that doesn't match
+        # Specific scope — ** scoped conflicts still appear
         response = get_conflicts(populated_db, path_or_scope="src/other")
-        # ** scoped conflicts still appear
-        assert len(response.data) >= 1
+        assert len(response.data["items"]) >= 1

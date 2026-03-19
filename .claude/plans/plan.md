@@ -282,20 +282,14 @@ _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MC
   Commit: "feat: M6 CLAUDE.md adapter, skills, guardrail extraction/projection"
   - **AC coverage**: AC-9 (get_guardrails with enforceable output), AC-8 (CLAUDE.md preview), partial AC-18 (skills for detailed content)
 
-- [ ] **M7: Full MCP server contract + response completeness**
-  - Complete all documented MCP tools:
-    - `get_preflight_context` — summary bundle (scoped rules, validated commands, guardrails, env profile, unsupported warnings)
-    - `get_repo_overview` — languages, entrypoints, module map, indexing status, envelope coverage
-    - `get_instruction_preview` — all hosts
-    - `get_claim` — full claim detail with evidence chain and review history
-    - `refresh_index` — incremental re-indexing. **Note**: this is the only tool with `readOnlyHint: false` (modifies internal index state, not repo files). All other tools have `readOnlyHint: true`.
-  - Response completeness: every tool returns `status`, `supported`/`unsupported_reason`, `data`, `warnings`, `provenance` (index_version, repo_head, branch, timestamp, confidence, source_authority, applicability, review_state)
-  - Pagination: `cursor`/`limit` params on multi-result tools, bounded result counts
-  - Detail levels: `detail_level` param (terse vs. detailed)
-  - Source allowlists: configurable trust boundary for which file types/directories influence claims
-  - MCP resources (supplementary): `rkp://repo/overview`, `rkp://repo/conventions`, `rkp://repo/conventions/{path}`, `rkp://repo/instructions/{consumer}`, `rkp://repo/architecture/modules`, `rkp://repo/prerequisites`
-  - Full MCP contract test suite: FastMCP in-memory client, all tools, argument validation, response envelope consistency, unsupported behavior explicitness, provenance on every response
-  - **Verification**: All documented tools respond correctly. Response envelope is consistent across all tools. Graceful degradation for out-of-envelope queries returns explicit `unsupported_reason`. Pagination works. Source allowlists honored.
+- [x] **M7: Full MCP server contract + response completeness**
+  - [x] Step 1 — Response envelope audit: fix to_dict() (always include unsupported_reason, warnings), add make_partial/unsupported/error helpers, parameterize index_version
+  - [x] Step 2 — Source allowlist config: SourceAllowlist model in config.py, enforce_allowlist() filter in tools.py
+  - [x] Step 3 — Tool updates: pagination (cursor/limit) + detail_level (terse/normal/detailed) on get_conventions, get_validated_commands, get_conflicts, get_guardrails; fix get_instruction_preview unsupported response
+  - [x] Step 4 — New tools: get_preflight_context, get_repo_overview, get_claim, refresh_index; refactor mcp.py (eliminate tool duplication via _register_tools); create resources.py (6 MCP resources)
+  - [x] Step 5 — Tests: 9 new test files (envelope, pagination, detail_levels, preflight, overview, claim, refresh, allowlist, resources) + updated 4 existing test files for new response shape. 444 total pass (372 existing + 72 new)
+  - [x] Step 6 — Full verification: ruff check, ruff format, pyright strict, pytest — all clean
+  Commit: "feat: M7 full MCP server contract, pagination, detail levels, resources"
   - **AC coverage**: AC-3 (MCP server responds to all tools), AC-4/5/6/7/8/9 (all tool completeness), AC-13 (provenance on every response), AC-16 (explicit unsupported status)
 
 - [ ] **M8: CLI init + preview + status + doctor + serve**

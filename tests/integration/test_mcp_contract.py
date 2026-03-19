@@ -83,33 +83,35 @@ def _extract_text(result: object) -> str:
 
 @pytest.mark.asyncio
 async def test_get_validated_commands(populated_mcp_db: sqlite3.Connection) -> None:
-    """get_validated_commands returns correct envelope."""
+    """get_validated_commands returns correct envelope with paginated data."""
     from fastmcp import Client
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_validated_commands_tool", {"scope": "**"})
+        result = await client.call_tool("get_validated_commands", {"scope": "**"})
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
         assert response["supported"] is True
-        assert isinstance(response["data"], list)
-        assert len(response["data"]) == 2
+        data = response["data"]
+        assert "items" in data
+        assert len(data["items"]) == 2
         assert "provenance" in response
 
 
 @pytest.mark.asyncio
 async def test_empty_repo_returns_ok(mcp_db: sqlite3.Connection) -> None:
-    """Empty repo returns ok with empty data."""
+    """Empty repo returns ok with empty paginated data."""
     from fastmcp import Client
 
     server = create_server(db=mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_validated_commands_tool", {"scope": "**"})
+        result = await client.call_tool("get_validated_commands", {"scope": "**"})
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
-        assert response["data"] == []
+        assert response["data"]["items"] == []
+        assert response["data"]["has_more"] is False
 
 
 @pytest.mark.asyncio
@@ -119,7 +121,7 @@ async def test_provenance_fields(populated_mcp_db: sqlite3.Connection) -> None:
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_validated_commands_tool", {})
+        result = await client.call_tool("get_validated_commands", {})
         text = _extract_text(result)
         response = json.loads(text)
         provenance = response["provenance"]
@@ -131,15 +133,15 @@ async def test_provenance_fields(populated_mcp_db: sqlite3.Connection) -> None:
 
 @pytest.mark.asyncio
 async def test_command_fields(populated_mcp_db: sqlite3.Connection) -> None:
-    """Each command has expected fields."""
+    """Each command has expected fields in normal detail level."""
     from fastmcp import Client
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_validated_commands_tool", {})
+        result = await client.call_tool("get_validated_commands", {})
         text = _extract_text(result)
         response = json.loads(text)
-        for cmd in response["data"]:
+        for cmd in response["data"]["items"]:
             assert "id" in cmd
             assert "command" in cmd
             assert "risk_class" in cmd
@@ -160,12 +162,13 @@ async def test_get_conventions_returns_conventions(
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_conventions_tool", {"path_or_symbol": "**"})
+        result = await client.call_tool("get_conventions", {"path_or_symbol": "**"})
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
-        assert isinstance(response["data"], list)
-        assert len(response["data"]) == 2  # snake_case + test placement
+        items = response["data"]["items"]
+        assert isinstance(items, list)
+        assert len(items) == 2  # snake_case + test placement
 
 
 @pytest.mark.asyncio
@@ -178,15 +181,15 @@ async def test_get_conventions_with_task_context(
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
         result = await client.call_tool(
-            "get_conventions_tool",
+            "get_conventions",
             {"path_or_symbol": "**", "task_context": "testing"},
         )
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
         # Should include both: "all" applicability + "testing" applicability
-        data = response["data"]
-        assert len(data) == 2
+        items = response["data"]["items"]
+        assert len(items) == 2
 
 
 @pytest.mark.asyncio
@@ -196,11 +199,11 @@ async def test_get_conventions_empty_repo(mcp_db: sqlite3.Connection) -> None:
 
     server = create_server(db=mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_conventions_tool", {"path_or_symbol": "**"})
+        result = await client.call_tool("get_conventions", {"path_or_symbol": "**"})
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
-        assert response["data"] == []
+        assert response["data"]["items"] == []
 
 
 @pytest.mark.asyncio
@@ -213,12 +216,12 @@ async def test_get_conventions_with_evidence(
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
         result = await client.call_tool(
-            "get_conventions_tool",
+            "get_conventions",
             {"path_or_symbol": "**", "include_evidence": True},
         )
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
-        for item in response["data"]:
+        for item in response["data"]["items"]:
             assert "evidence" in item
             assert isinstance(item["evidence"], list)

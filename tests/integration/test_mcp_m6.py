@@ -107,17 +107,18 @@ async def test_get_guardrails_returns_correct_envelope(
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_guardrails_tool", {"path_or_scope": "**"})
+        result = await client.call_tool("get_guardrails", {"path_or_scope": "**"})
         text = _extract_text(result)
         response = json.loads(text)
 
         assert response["status"] == "ok"
-        assert isinstance(response["data"], list)
-        assert len(response["data"]) == 2  # destructive + advisory
+        items = response["data"]["items"]
+        assert isinstance(items, list)
+        assert len(items) == 2  # destructive + advisory
 
         # Check enforceable/advisory distinction
-        enforceable = [g for g in response["data"] if g["enforceable_on"]]
-        advisory = [g for g in response["data"] if not g["enforceable_on"]]
+        enforceable = [g for g in items if g["enforceable_on"]]
+        advisory = [g for g in items if not g["enforceable_on"]]
         assert len(enforceable) == 1
         assert len(advisory) == 1
         assert "claude" in enforceable[0]["enforceable_on"]
@@ -132,12 +133,12 @@ async def test_get_guardrails_empty_repo(mcp_db: sqlite3.Connection) -> None:
 
     server = create_server(db=mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_guardrails_tool", {"path_or_scope": "**"})
+        result = await client.call_tool("get_guardrails", {"path_or_scope": "**"})
         text = _extract_text(result)
         response = json.loads(text)
 
         assert response["status"] == "ok"
-        assert response["data"] == []
+        assert response["data"]["items"] == []
 
 
 @pytest.mark.asyncio
@@ -147,13 +148,11 @@ async def test_get_guardrails_scoped(populated_mcp_db: sqlite3.Connection) -> No
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        # Scope to non-matching path — should still return ** scoped claims
-        result = await client.call_tool("get_guardrails_tool", {"path_or_scope": "src/payments/"})
+        result = await client.call_tool("get_guardrails", {"path_or_scope": "src/payments/"})
         text = _extract_text(result)
         response = json.loads(text)
         assert response["status"] == "ok"
-        # All claims have scope ** so they should still match
-        assert len(response["data"]) == 2
+        assert len(response["data"]["items"]) == 2
 
 
 @pytest.mark.asyncio
@@ -163,7 +162,7 @@ async def test_get_guardrails_provenance(populated_mcp_db: sqlite3.Connection) -
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_guardrails_tool", {})
+        result = await client.call_tool("get_guardrails", {})
         text = _extract_text(result)
         response = json.loads(text)
         assert "provenance" in response
@@ -180,7 +179,7 @@ async def test_instruction_preview_claude(populated_mcp_db: sqlite3.Connection) 
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_instruction_preview_tool", {"consumer": "claude"})
+        result = await client.call_tool("get_instruction_preview", {"consumer": "claude"})
         text = _extract_text(result)
         response = json.loads(text)
 
@@ -199,7 +198,7 @@ async def test_instruction_preview_codex(populated_mcp_db: sqlite3.Connection) -
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_instruction_preview_tool", {"consumer": "codex"})
+        result = await client.call_tool("get_instruction_preview", {"consumer": "codex"})
         text = _extract_text(result)
         response = json.loads(text)
 
@@ -210,13 +209,30 @@ async def test_instruction_preview_codex(populated_mcp_db: sqlite3.Connection) -
 
 
 @pytest.mark.asyncio
+async def test_instruction_preview_unsupported_consumer(
+    populated_mcp_db: sqlite3.Connection,
+) -> None:
+    """Unsupported consumer returns unsupported status."""
+    from fastmcp import Client
+
+    server = create_server(db=populated_mcp_db)
+    async with Client(server) as client:
+        result = await client.call_tool("get_instruction_preview", {"consumer": "unknown"})
+        text = _extract_text(result)
+        response = json.loads(text)
+        assert response["status"] == "unsupported"
+        assert response["supported"] is False
+        assert response["unsupported_reason"] is not None
+
+
+@pytest.mark.asyncio
 async def test_instruction_preview_provenance(populated_mcp_db: sqlite3.Connection) -> None:
     """Both tools have provenance in response."""
     from fastmcp import Client
 
     server = create_server(db=populated_mcp_db)
     async with Client(server) as client:
-        result = await client.call_tool("get_instruction_preview_tool", {"consumer": "claude"})
+        result = await client.call_tool("get_instruction_preview", {"consumer": "claude"})
         text = _extract_text(result)
         response = json.loads(text)
         assert "provenance" in response
