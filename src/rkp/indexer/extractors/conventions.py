@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import structlog
 
 from rkp.core.types import ClaimType, Sensitivity, SourceAuthority
+from rkp.indexer.parsers.javascript import ParsedJavaScriptFile
 from rkp.indexer.parsers.python import ParsedPythonFile
 
 logger = structlog.get_logger()
@@ -487,5 +488,220 @@ def extract_conventions(
                 review_state_hint=review_hint,
             )
         )
+
+    return claims
+
+
+# --- Test framework detection for JS/TS ---
+
+_JS_TEST_FRAMEWORKS: dict[str, str] = {
+    "jest": "Jest",
+    "vitest": "Vitest",
+    "mocha": "Mocha",
+    "@jest/globals": "Jest",
+    "@testing-library": "Testing Library",
+}
+
+
+def _detect_js_test_framework(
+    parsed_files: list[ParsedJavaScriptFile],
+) -> tuple[str | None, float, list[str]]:
+    """Detect JS/TS test framework from import patterns."""
+    framework_counts: Counter[str] = Counter()
+    evidence: list[str] = []
+
+    for pf in parsed_files:
+        if not pf.has_test_patterns:
+            continue
+        evidence.append(pf.path)
+        for imp in pf.imports:
+            for pattern, name in _JS_TEST_FRAMEWORKS.items():
+                if pattern in imp.source:
+                    framework_counts[name] += 1
+
+    if not framework_counts:
+        # No explicit imports, but test patterns detected — likely Jest (default)
+        if evidence:
+            return "Jest (inferred from test patterns)", 0.8, evidence
+        return None, 0.0, []
+
+    dominant, count = framework_counts.most_common(1)[0]
+    total = sum(framework_counts.values())
+    confidence = count / total if total > 0 else 0.0
+
+    return dominant, confidence, evidence
+
+
+def _detect_js_test_placement(
+    parsed_files: list[ParsedJavaScriptFile],
+) -> tuple[str | None, float, list[str]]:
+    """Detect JS/TS test file placement pattern."""
+    test_files = [pf.path for pf in parsed_files if pf.has_test_patterns]
+
+    if not test_files:
+        return None, 0.0, []
+
+    in_tests_dir = 0
+    in_test_dir = 0
+    colocated = 0
+
+    for tf in test_files:
+        parts = tf.replace("\\", "/").split("/")
+        if "__tests__" in parts:
+            in_tests_dir += 1
+        elif any(p in parts for p in ("tests", "test")):
+            in_test_dir += 1
+        elif ".test." in tf or ".spec." in tf:
+            colocated += 1
+        else:
+            colocated += 1
+
+    total = len(test_files)
+    patterns = {
+        "__tests__/ directory": in_tests_dir,
+        "tests/ or test/ directory": in_test_dir,
+        "co-located (*.test.* / *.spec.*)": colocated,
+    }
+
+    dominant_pattern = max(patterns, key=lambda k: patterns[k])
+    dominant_count = patterns[dominant_pattern]
+    confidence = dominant_count / total if total > 0 else 0.0
+
+    return dominant_pattern, confidence, test_files
+
+
+def extract_js_conventions(
+    parsed_files: list[ParsedJavaScriptFile],
+    *,
+    tools_detected: frozenset[str] = frozenset(),
+    scope: str = "**",
+) -> list[ConventionClaimInput]:
+    """Extract convention claims from parsed JS/TS files.
+
+    Analyzes naming conventions (camelCase functions, PascalCase classes),
+    test framework detection, test file placement, and TypeScript usage.
+    """
+    claims: list[ConventionClaimInput] = []
+    has_formatter = bool(tools_detected & _FORMATTER_TOOLS)
+
+    # --- Naming conventions ---
+    func_names: list[str] = []
+    class_names: list[str] = []
+    func_evidence: list[str] = []
+
+    for pf in parsed_files:
+        if pf.functions:
+            func_evidence.append(pf.path)
+        func_names.extend(func.name for func in pf.functions)
+        class_names.extend(cls.name for cls in pf.classes)
+
+    naming_categories: list[tuple[str, list[str], tuple[str, ...]]] = [
+        ("function names", func_names, ("all",)),
+        ("class names", class_names, ("all",)),
+    ]
+
+    for category_label, names, applicability in naming_categories:
+        stats = _compute_naming_stats(names, category_label)
+        if stats.total < MIN_SAMPLE_SIZE:
+            continue
+        if stats.consistency < WEAK_THRESHOLD:
+            continue
+        if stats.dominant_style is None:
+            continue
+
+        if has_formatter and category_label == "function names":
+            continue
+
+        authority = _authority_for_confidence(stats.consistency)
+        review_hint = _review_hint_for_confidence(stats.consistency)
+        claim_type = (
+            ClaimType.ALWAYS_ON_RULE
+            if authority == SourceAuthority.INFERRED_HIGH
+            else ClaimType.SCOPED_RULE
+        )
+
+        claims.append(
+            ConventionClaimInput(
+                content=f"Use {stats.dominant_style} for {category_label} "
+                f"({stats.consistency:.0%} consistency across {stats.total} identifiers)",
+                claim_type=claim_type,
+                source_authority=authority,
+                scope=scope,
+                applicability=applicability,
+                confidence=round(stats.consistency, 4),
+                sensitivity=Sensitivity.PUBLIC,
+                evidence_files=tuple(func_evidence[:10]),
+                review_state_hint=review_hint,
+            )
+        )
+
+    # --- Test framework ---
+    framework, fw_confidence, fw_evidence = _detect_js_test_framework(parsed_files)
+    if framework is not None and fw_confidence >= WEAK_THRESHOLD:
+        authority = _authority_for_confidence(fw_confidence)
+        review_hint = _review_hint_for_confidence(fw_confidence)
+        claims.append(
+            ConventionClaimInput(
+                content=f"Test framework: {framework}",
+                claim_type=ClaimType.ALWAYS_ON_RULE
+                if authority == SourceAuthority.INFERRED_HIGH
+                else ClaimType.SCOPED_RULE,
+                source_authority=authority,
+                scope=scope,
+                applicability=("testing",),
+                confidence=round(fw_confidence, 4),
+                sensitivity=Sensitivity.PUBLIC,
+                evidence_files=tuple(fw_evidence[:10]),
+                review_state_hint=review_hint,
+            )
+        )
+
+    # --- Test placement ---
+    test_pattern, test_confidence, test_evidence = _detect_js_test_placement(parsed_files)
+    if test_pattern is not None and test_confidence >= WEAK_THRESHOLD:
+        authority = _authority_for_confidence(test_confidence)
+        review_hint = _review_hint_for_confidence(test_confidence)
+        claims.append(
+            ConventionClaimInput(
+                content=f"Tests are placed in {test_pattern} "
+                f"({test_confidence:.0%} of test files)",
+                claim_type=ClaimType.ALWAYS_ON_RULE
+                if authority == SourceAuthority.INFERRED_HIGH
+                else ClaimType.SCOPED_RULE,
+                source_authority=authority,
+                scope=scope,
+                applicability=("testing",),
+                confidence=round(test_confidence, 4),
+                sensitivity=Sensitivity.PUBLIC,
+                evidence_files=tuple(test_evidence[:10]),
+                review_state_hint=review_hint,
+            )
+        )
+
+    # --- TypeScript usage ---
+    ts_count = sum(1 for pf in parsed_files if pf.language == "typescript")
+    js_count = sum(1 for pf in parsed_files if pf.language == "javascript")
+    total_js_ts = ts_count + js_count
+    if total_js_ts >= MIN_SAMPLE_SIZE:
+        ts_ratio = ts_count / total_js_ts
+        if ts_ratio >= WEAK_THRESHOLD:
+            authority = _authority_for_confidence(ts_ratio)
+            review_hint = _review_hint_for_confidence(ts_ratio)
+            claims.append(
+                ConventionClaimInput(
+                    content=f"TypeScript is the primary language "
+                    f"({ts_ratio:.0%} of {total_js_ts} JS/TS files)",
+                    claim_type=ClaimType.ALWAYS_ON_RULE
+                    if authority == SourceAuthority.INFERRED_HIGH
+                    else ClaimType.SCOPED_RULE,
+                    source_authority=authority,
+                    scope=scope,
+                    applicability=("all",),
+                    confidence=round(ts_ratio, 4),
+                    sensitivity=Sensitivity.PUBLIC,
+                    evidence_files=tuple(pf.path for pf in parsed_files[:10]),
+                    review_state_hint=review_hint,
+                )
+            )
 
     return claims

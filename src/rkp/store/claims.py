@@ -46,6 +46,11 @@ class SqliteClaimStore:
     def __init__(self, db: sqlite3.Connection) -> None:
         self._db = db
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Return the underlying database connection."""
+        return self._db
+
     def save(self, claim: Claim) -> None:
         """Insert a new claim. Raises DuplicateClaimError if ID exists."""
         existing = self.get(claim.id)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -115,3 +116,81 @@ def get_conventions(
         repo_head="",
         branch=branch,
     )
+
+
+def get_prerequisites(
+    db: sqlite3.Connection,
+    *,
+    command_or_scope: str | None = None,
+    repo_id: str = "",
+    branch: str = "main",
+) -> ToolResponse:
+    """Return environment prerequisites, structured as environment profiles.
+
+    If command_or_scope is a specific command: return the profile linked to that command.
+    If it's a path scope: return aggregated prerequisites for all commands in that scope.
+    If None: return all profiles and prerequisite claims.
+    """
+    store = SqliteClaimStore(db)
+
+    # Get environment prerequisite claims
+    prereq_claims = store.list_claims(
+        claim_type=ClaimType.ENVIRONMENT_PREREQUISITE,
+        repo_id=repo_id if repo_id else None,
+    )
+
+    # Filter by scope if specified
+    if command_or_scope is not None:
+        prereq_claims = [
+            c for c in prereq_claims if c.scope == command_or_scope or c.scope == "**"
+        ]
+
+    # Get environment profiles from database
+    profiles = _get_profiles(db, repo_id=repo_id)
+
+    prerequisites: list[dict[str, Any]] = [
+        {
+            "id": claim.id,
+            "content": claim.content,
+            "source_authority": claim.source_authority.value,
+            "confidence": claim.confidence,
+            "applicability": list(claim.applicability),
+            "evidence": list(claim.evidence),
+            "sensitivity": claim.sensitivity.value,
+        }
+        for claim in prereq_claims
+    ]
+
+    return make_ok_response(
+        data={
+            "prerequisites": prerequisites,
+            "profiles": profiles,
+        },
+        repo_head="",
+        branch=branch,
+    )
+
+
+def _get_profiles(db: sqlite3.Connection, *, repo_id: str = "") -> list[dict[str, Any]]:
+    """Retrieve environment profiles from the database."""
+    if repo_id:
+        rows = db.execute(
+            "SELECT * FROM environment_profiles WHERE repo_id = ?", (repo_id,)
+        ).fetchall()
+    else:
+        rows = db.execute("SELECT * FROM environment_profiles").fetchall()
+
+    return [
+        {
+            "id": str(row["id"]),
+            "name": str(row["name"]),
+            "runtime": row["runtime"],
+            "tools": json.loads(str(row["tools"])) if row["tools"] else [],
+            "services": json.loads(str(row["services"])) if row["services"] else [],
+            "env_vars": json.loads(str(row["env_vars"])) if row["env_vars"] else [],
+            "setup_commands": (
+                json.loads(str(row["setup_commands"])) if row["setup_commands"] else []
+            ),
+        }
+        for row in rows
+    ]

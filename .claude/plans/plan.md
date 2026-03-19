@@ -254,15 +254,13 @@ _Goal: Get from zero to a working end-to-end vertical slice — config → claim
 
 _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MCP contract, and core CLI commands._
 
-- [ ] **M4: JS/TS parsing + CI evidence + prerequisites + environment profiles**
-  - `src/rkp/indexer/parsers/javascript.py` — JS/TS tree-sitter queries
-  - `src/rkp/indexer/config_parsers/github_actions.py` — workflows: commands, runtimes (setup-python/setup-node), services, env vars, OS, matrix. Confidence per build research §5.6. Expression handling: extract strings, resolve simple matrix refs, mark unresolvable. **Do NOT build a full expression evaluator.**
-  - `src/rkp/indexer/config_parsers/{dockerfile,docker_compose,makefile,version_files}.py`
-  - `src/rkp/indexer/extractors/ci_evidence.py` — CI evidence extraction
-  - `src/rkp/indexer/extractors/prerequisites.py` — runtimes, tools, services, env vars (names only, never values), OS
-  - Environment profiles as top-level objects: commands point to profiles, profiles aggregate from config + CI + Dockerfiles + version files. Per PRD amendment P0 #3: "Commands should point to environment profiles, not carry prerequisites inline."
-  - Extend MCP: `get_prerequisites` tool (returns environment profiles with evidence level)
-  - `tests/fixtures/simple_js/`, `tests/fixtures/with_ci/` — fixture repos
+- [x] **M4: JS/TS parsing + CI evidence + prerequisites + environment profiles**
+  - [x] Step 1 — JS/TS parser + 5 config parsers (makefile, dockerfile, docker_compose, github_actions, version_files)
+  - [x] Step 2 — CI evidence extractor + prerequisite extractor + environment profiles + extend conventions for JS/TS
+  - [x] Step 3 — Extend orchestrator + MCP get_prerequisites tool
+  - [x] Step 4 — Test fixtures + all tests (unit, integration, contract)
+  - [x] Step 5 — Full verification
+  Commit: "feat: M4 JS/TS parsing, CI evidence, prerequisites, environment profiles"
   - **Verification**: Commands from pyproject.toml, package.json, Makefile, and GitHub Actions extracted with correct evidence levels. Prerequisites aggregated into environment profiles. CI evidence cross-referenced. `get_prerequisites` returns structured profiles.
   - **AC coverage**: AC-7 (get_prerequisites with CI evidence), AC-25 (GitHub Actions parsed), partial AC-6 (extended evidence levels)
 

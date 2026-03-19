@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 from fastmcp import Context, FastMCP
 
-from rkp.server.tools import get_conventions, get_validated_commands
+from rkp.server.tools import get_conventions, get_prerequisites, get_validated_commands
 from rkp.store.database import open_database, run_migrations
 
 logger = structlog.get_logger()
@@ -87,6 +87,25 @@ def get_conventions_tool(
     return json.dumps(response.to_dict(), indent=2)
 
 
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_prerequisites_tool(
+    ctx: Context,
+    command_or_scope: str | None = None,
+) -> str:
+    """Get environment prerequisites and profiles for a command or scope.
+
+    Args:
+        command_or_scope: A specific command name or path scope (default: all)
+
+    Returns:
+        JSON response with environment prerequisites structured as profiles:
+        runtimes, tools, services, env vars, evidence level per prerequisite.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_prerequisites(db, command_or_scope=command_or_scope)
+    return json.dumps(response.to_dict(), indent=2)
+
+
 def create_server(
     *,
     db: sqlite3.Connection | None = None,
@@ -134,6 +153,16 @@ def create_server(
                 include_evidence=include_evidence,
                 task_context=task_context,
             )
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_prerequisites_tool", annotations={"readOnlyHint": True})
+        def _test_get_prerequisites(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            command_or_scope: str | None = None,
+        ) -> str:
+            """Get environment prerequisites and profiles."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_prerequisites(db_conn, command_or_scope=command_or_scope)
             return json.dumps(response.to_dict(), indent=2)
 
         return test_server

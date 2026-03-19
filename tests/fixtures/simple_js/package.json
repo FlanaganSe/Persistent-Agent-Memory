@@ -1,0 +1,13 @@
+{
+  "name": "simple-js-app",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "jest",
+    "lint": "eslint src/",
+    "build": "tsc",
+    "format": "prettier --write src/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

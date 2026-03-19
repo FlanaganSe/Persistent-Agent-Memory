@@ -1,0 +1,7 @@
+{
+  "description": "Expected claims from simple JS/TS fixture",
+  "expected_command_count_min": 4,
+  "expected_command_names": ["test", "lint", "build", "format"],
+  "expected_convention_types": ["naming", "test-framework", "test-placement"],
+  "expected_source_authority": "executable-config"
+}
