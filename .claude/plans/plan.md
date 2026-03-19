@@ -307,15 +307,13 @@ _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MC
 
 _Goal: Complete the human governance loop, harden security before import, implement import/drift, and add Copilot adapter._
 
-- [ ] **M9: Review + governance + overrides persistence**
-  - `src/rkp/cli/commands/review.py` — interactive review: Rich Panel per claim, keyboard shortcuts [a]pprove/[e]dit/[s]uppress/[t]ombstone/[d]eclare/[r]espond-to-declaration/[n]ext/[q]uit. Running totals. Edit via `$EDITOR`. Batch `--approve-all` for high-confidence.
-  - **Declare**: add a new rule the product didn't discover (per PRD §11)
-  - **Respond to declaration prompt**: answer questions the system surfaced as `needs-declaration` (per PRD §11, D34, AC-11)
-  - `src/rkp/cli/commands/apply.py` — `rkp apply`: write approved projections (diff preview, provenance headers, never silent overwrite)
-  - `src/rkp/cli/commands/purge.py` — `rkp purge`: hard-delete tombstoned claims with confirmation and audit logging (per PRD §11, D15)
-  - `src/rkp/store/overrides.py` — `.rkp/overrides/` persistence: serialize human decisions (approvals, edits, suppressions, declarations, tombstones) as self-contained strictyaml files. Load on init/re-index. Merge into claim state. `local-only` claims never written to overrides (only to `.rkp/local/`).
-  - `src/rkp/store/history.py` — (extend) full audit semantics: every action (approve, edit, suppress, tombstone, declare, purge) recorded with before/after, actor, reason
-  - `src/rkp/cli/ui/review_flow.py` — review flow UI
+- [x] **M9: Review + governance + overrides persistence**
+  - [x] Step 1 — Override model + store (src/rkp/store/overrides.py): Override dataclass, OverrideStore Protocol, FileSystemOverrideStore with strictyaml serialization, sensitivity enforcement, apply_overrides → verify: `uv run ruff check src/rkp/store/overrides.py && uv run pyright src/rkp/store/overrides.py`
+  - [x] Step 2 — Review flow UI + review command (src/rkp/cli/ui/review_flow.py, src/rkp/cli/commands/review.py): Rich Panel claim display, interactive keyboard actions, $EDITOR integration, --approve-all batch mode, --type/--scope/--state filters, declaration prompts → verify: `uv run ruff check src/rkp/cli/commands/review.py src/rkp/cli/ui/review_flow.py && uv run pyright src/rkp/cli/commands/review.py src/rkp/cli/ui/review_flow.py`
+  - [x] Step 3 — Apply + purge commands (src/rkp/cli/commands/apply.py, src/rkp/cli/commands/purge.py): diff preview, review-state filtering, confirmation, artifact tracking, purge with audit trail → verify: `uv run ruff check src/rkp/cli/commands/apply.py src/rkp/cli/commands/purge.py && uv run pyright src/rkp/cli/commands/apply.py src/rkp/cli/commands/purge.py`
+  - [x] Step 4 — Integration: update init.py (load overrides after extraction), update app.py (register review/apply/purge), update projection engine (review-state filtering for apply vs preview) → verify: `uv run ruff check src/rkp/cli/ src/rkp/projection/ && uv run pyright src/rkp/cli/ src/rkp/projection/`
+  - [x] Step 5 — Tests: unit tests (overrides, projection review-state), integration tests (review, apply, purge CLI), full governance lifecycle test → verify: `uv run pytest tests/ -v`
+  Commit: "feat: M9 review + governance + overrides persistence"
   - **Verification**: Review workflow persists decisions correctly. Overrides round-trip: write → clone on new machine → `rkp init` → same approved/suppressed state. Apply writes expected files with correct content. Purge hard-deletes and logs. Audit trail captures all actions. Declaration prompts surfaced and answerable.
   - **AC coverage**: AC-10 (no write without review), AC-11 (full correction workflow including declaration prompts), AC-17 (audit trail + purge), AC-23 (version-controlled overrides, regenerable local state)
 

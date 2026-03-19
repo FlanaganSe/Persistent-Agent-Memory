@@ -225,10 +225,31 @@ def init(
             graph=graph,
         )
 
-        # 5. Write config
+        # 5. Load overrides from .rkp/overrides/ (round-trip guarantee, AC-23).
+        overrides_dir = rkp_dir / "overrides"
+        if overrides_dir.exists() and any(overrides_dir.glob("*.yaml")):
+            from rkp.store.overrides import FileSystemOverrideStore
+
+            override_store = FileSystemOverrideStore(overrides_dir)
+            apply_result = override_store.apply_overrides(claim_store, repo_id=repo_id)
+
+            if not state.quiet and not state.json_output:
+                if apply_result.applied:
+                    action_parts = [f"{n} {a}" for a, n in apply_result.by_action]
+                    console.print(
+                        f"Applied {apply_result.applied} overrides from .rkp/overrides/ "
+                        f"({', '.join(action_parts)})"
+                    )
+                if apply_result.skipped:
+                    console.print(
+                        f"[yellow]{apply_result.skipped} overrides skipped "
+                        f"(claims not found — codebase may have changed)[/yellow]"
+                    )
+
+        # 6. Write config
         _write_default_config(rkp_dir, supported_langs)
 
-        # 6. Present results
+        # 7. Present results
         claims = claim_store.list_claims(repo_id=repo_id)
         conflicts = [c for c in claims if c.claim_type == ClaimType.CONFLICT]
         needs_review = [c for c in claims if c.review_state == ReviewState.UNREVIEWED]
