@@ -274,6 +274,92 @@ def detect_conflicts(claims: list[Claim]) -> ConflictResult:
                 )
             )
 
+    # 4. Import-vs-extraction conflicts — imported claims vs extracted evidence
+    imported_commands = [
+        c
+        for c in claims
+        if c.claim_type == ClaimType.VALIDATED_COMMAND
+        and c.source_authority == SourceAuthority.DECLARED_IMPORTED_UNREVIEWED
+    ]
+
+    # Check imported commands against config commands (stale instruction detection)
+    if imported_commands and config_commands:
+        for imp_cmd in imported_commands:
+            imp_key = _extract_command_key(imp_cmd.content)
+            if imp_key is None:
+                continue
+            # If the imported command's base key isn't in any config
+            if (
+                imp_key not in config_keys
+                and imp_cmd.content.strip().lower() not in config_contents
+            ):
+                authority = _highest_authority([imp_cmd, *config_commands[:1]])
+                conflicts.append(
+                    ConflictClaimInput(
+                        content=(
+                            f"Stale instruction: imported file references "
+                            f"'{imp_cmd.content}' but no matching command found in config files"
+                        ),
+                        source_authority=authority,
+                        scope="**",
+                        confidence=0.8,
+                        evidence_claim_ids=(imp_cmd.id,),
+                        conflict_type="stale-import",
+                    )
+                )
+
+    # Check imported prerequisites against extracted prerequisites
+    imported_prereqs = [
+        c
+        for c in claims
+        if c.claim_type == ClaimType.ENVIRONMENT_PREREQUISITE
+        and c.source_authority == SourceAuthority.DECLARED_IMPORTED_UNREVIEWED
+    ]
+
+    if imported_prereqs:
+        extracted_prereqs = [
+            c
+            for c in prereq_claims
+            if c.source_authority != SourceAuthority.DECLARED_IMPORTED_UNREVIEWED
+        ]
+
+        imported_by_runtime: defaultdict[str, list[Claim]] = defaultdict(list)
+        for claim in imported_prereqs:
+            runtime = _extract_runtime_name(claim.content)
+            if runtime is not None:
+                imported_by_runtime[runtime].append(claim)
+
+        extracted_by_runtime: defaultdict[str, list[Claim]] = defaultdict(list)
+        for claim in extracted_prereqs:
+            runtime = _extract_runtime_name(claim.content)
+            if runtime is not None:
+                extracted_by_runtime[runtime].append(claim)
+
+        for runtime, imp_claims in imported_by_runtime.items():
+            ext_claims = extracted_by_runtime.get(runtime, [])
+            if not ext_claims:
+                continue
+            for imp_claim in imp_claims:
+                for ext_claim in ext_claims:
+                    if _versions_conflict(imp_claim.content, ext_claim.content):
+                        authority = _highest_authority([imp_claim, ext_claim])
+                        imp_evidence = imp_claim.evidence[0] if imp_claim.evidence else "imported"
+                        ext_evidence = ext_claim.evidence[0] if ext_claim.evidence else "extracted"
+                        conflicts.append(
+                            ConflictClaimInput(
+                                content=(
+                                    f"Imported instruction says '{imp_claim.content}' "
+                                    f"(from {imp_evidence}) but extracted evidence shows "
+                                    f"'{ext_claim.content}' (from {ext_evidence})"
+                                ),
+                                source_authority=authority,
+                                scope="**",
+                                confidence=1.0,
+                                evidence_claim_ids=(imp_claim.id, ext_claim.id),
+                                conflict_type="import-vs-extraction",
+                            )
+                        )
+
     logger.info("Conflict detection complete", conflicts_found=len(conflicts))
 
     return ConflictResult(conflicts=tuple(conflicts))

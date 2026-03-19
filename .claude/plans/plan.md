@@ -327,16 +327,13 @@ _Goal: Complete the human governance loop, harden security before import, implem
   - **Verification**: No injection markers pass through to MCP responses (with allowlisting for legitimate content). Path traversal blocked. Secrets detected and flagged. Sensitivity filter never leaks. Source allowlists enforced.
   - **AC coverage**: AC-14 (data boundary verified), AC-24 (sensitivity field enforced, leakage tested)
 
-- [ ] **M11: Import + artifact ownership + drift detection**
-  - `src/rkp/importer/engine.py` — import orchestration: discover instruction files → parse → create `declared-imported-unreviewed` claims (precedence 3.5, **below** executable-config) → run extraction in parallel → surface conflicts → present unified review
-  - `src/rkp/importer/parsers/agents_md.py` + `claude_md.py` + `copilot.py` — import parsers for AGENTS.md, CLAUDE.md, copilot-instructions.md, copilot-setup-steps.yml (per PRD §11 supported import sources)
-  - Import parsing: deterministic (frontmatter, code blocks, globs) + heuristic (heading classification, bullet extraction, command detection). LLM-assisted deferred.
-  - Artifact ownership modes (per build research §3.7): `imported-human-owned` (imported but not managed), `managed-by-rkp` (regenerated after review), `mixed-migration` (transitioning, explicit diffs/warnings). Ownership mode persists on `managed_artifacts` table and governs drift/apply behavior.
-  - `src/rkp/store/artifacts.py` — (extend) drift detection: content drift (file hash differs from expected), new unmanaged files, missing files. Hash comparison uses same normalization as generation.
-  - Drift reconciliation: absorb (update claim from manual edit → creates declared-policy claim), reject (regenerate from canonical model), suppress (stop managing artifact)
-  - `src/rkp/cli/commands/import_.py` — `rkp import [--source path]`
-  - Extend `rkp status` with drift reporting
-  - `tests/fixtures/with_agents_md/`, `tests/fixtures/with_drift/` — fixture repos
+- [x] **M11: Import + artifact ownership + drift detection**
+  - [x] Step 1 — Importer data models + base parsing utilities + 4 parsers (agents_md, claude_md, copilot, cursor) → verify: `uv run ruff check src/rkp/importer && uv run pyright src/rkp/importer`
+  - [x] Step 2 — Artifact store (src/rkp/store/artifacts.py) with ownership modes + drift detection → verify: `uv run ruff check src/rkp/store/artifacts.py && uv run pyright src/rkp/store/artifacts.py`
+  - [x] Step 3 — Import engine + extend conflict detection for import-vs-extraction → verify: `uv run ruff check src/rkp/importer/engine.py src/rkp/indexer/extractors/conflicts.py && uv run pyright src/rkp/importer/engine.py src/rkp/indexer/extractors/conflicts.py`
+  - [x] Step 4 — CLI import command + extend status with drift reporting + register in app.py → verify: `uv run ruff check src/rkp/cli/commands/import_.py src/rkp/cli/commands/status.py src/rkp/cli/app.py && uv run pyright src/rkp/cli/commands/import_.py src/rkp/cli/commands/status.py src/rkp/cli/app.py`
+  - [x] Step 5 — Test fixtures + all tests (unit parsers, integration engine, artifact ownership, drift detection, CLI) → verify: `uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright && uv run pytest`
+  Commit: "feat: M11 import + artifact ownership + drift detection"
   - **Verification**: Imported files produce claims at correct authority. Conflicts surfaced between imported and extracted. Ownership modes govern behavior correctly: imported-human-owned files not overwritten, managed files regenerable, mixed-migration shows diffs. Drift correctly detected and reconcilable. Round-trip fidelity >=90%.
   - **AC coverage**: AC-21 (import AGENTS.md and CLAUDE.md), AC-22 (drift detection), AC-20 (partial: evidence-triggered revalidation via drift)
 

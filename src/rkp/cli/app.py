@@ -91,6 +91,7 @@ def callback(
 # Import and register subcommands
 from rkp.cli.commands.apply import apply  # noqa: E402
 from rkp.cli.commands.doctor import doctor  # noqa: E402
+from rkp.cli.commands.import_ import import_files  # noqa: E402
 from rkp.cli.commands.init import init  # noqa: E402
 from rkp.cli.commands.preview import preview  # noqa: E402
 from rkp.cli.commands.purge import purge  # noqa: E402
@@ -106,6 +107,7 @@ app.command()(serve)
 app.command()(review)
 app.command(name="apply")(apply)
 app.command()(purge)
+app.command(name="import")(import_files)
 
 
 def main() -> None:

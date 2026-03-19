@@ -87,7 +87,15 @@ def status(
         # Index staleness (simple HEAD-based; full staleness is M14)
         is_stale = False
 
-        has_findings = conflicts > 0 or unreviewed > 0 or needs_declaration > 0
+        # Drift detection
+        from rkp.store.artifacts import SqliteArtifactStore
+
+        artifact_store = SqliteArtifactStore(db)
+        drift_report = artifact_store.detect_drift(repo_path)
+        drift_count = len(drift_report.content_drifts)
+        new_unmanaged_count = len(drift_report.new_unmanaged)
+
+        has_findings = conflicts > 0 or unreviewed > 0 or needs_declaration > 0 or drift_count > 0
 
         if state.json_output:
             print_json(
@@ -112,6 +120,22 @@ def status(
                         "unsupported": sorted(unsupported_langs),
                     },
                     "adapters": adapters,
+                    "managed_files": {
+                        "total": len(drift_report.clean_files)
+                        + drift_count
+                        + len(drift_report.missing_files),
+                        "clean": len(drift_report.clean_files),
+                        "drifted": drift_count,
+                        "missing": len(drift_report.missing_files),
+                        "new_unmanaged": new_unmanaged_count,
+                    },
+                    "drift_details": [
+                        {
+                            "path": d.path,
+                            "ownership_mode": d.ownership_mode,
+                        }
+                        for d in drift_report.content_drifts
+                    ],
                 }
             )
         elif not state.quiet:
@@ -181,6 +205,41 @@ def status(
             console.print("[bold]Adapters[/bold]")
             for host, adapter_status in adapters.items():
                 console.print(f"  {host}: {adapter_status} (preview maturity)")
+
+            # Section 7: Managed files and drift
+            managed_artifacts = artifact_store.list_artifacts()
+            if managed_artifacts or drift_report.new_unmanaged:
+                console.print()
+                console.print("[bold]Managed Files[/bold]")
+                for artifact in managed_artifacts:
+                    # Check drift status
+                    drifted = any(d.path == artifact.path for d in drift_report.content_drifts)
+                    missing = artifact.path in drift_report.missing_files
+                    if missing:
+                        status_str = "[red]MISSING[/red]"
+                    elif drifted:
+                        status_str = "[yellow]DRIFTED[/yellow] (manually edited)"
+                    else:
+                        status_str = "[green]current[/green] (hash matches)"
+                    console.print(
+                        f"  {artifact.path} — {artifact.ownership_mode.value}, {status_str}"
+                    )
+
+                if drift_count > 0:
+                    console.print(
+                        f"\n  [yellow]{drift_count} file(s) drifted. "
+                        f"Run rkp review to reconcile.[/yellow]"
+                    )
+
+                if drift_report.new_unmanaged:
+                    console.print()
+                    console.print("[bold]Unmanaged Instruction Files[/bold]")
+                    for path in drift_report.new_unmanaged:
+                        console.print(f"  {path} — not tracked by RKP")
+                    console.print(
+                        f"\n  [dim]{new_unmanaged_count} unmanaged instruction file(s) detected. "
+                        f"Run rkp import to ingest.[/dim]"
+                    )
 
         if has_findings:
             raise typer.Exit(code=1)
