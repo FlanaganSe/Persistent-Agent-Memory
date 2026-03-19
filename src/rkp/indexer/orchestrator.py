@@ -12,7 +12,14 @@ import structlog
 from rkp.core.claim_builder import ClaimBuilder
 from rkp.core.errors import DuplicateClaimError
 from rkp.core.models import Claim, EnvironmentProfile, Provenance
-from rkp.core.types import ClaimType, ReviewState, SourceAuthority
+from rkp.core.security import (
+    Severity,
+    max_injection_severity,
+    redact_secrets,
+    scan_for_injection,
+    scan_for_secrets,
+)
+from rkp.core.types import ClaimType, ReviewState, Sensitivity, SourceAuthority
 from rkp.git.backend import GitBackend
 from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.indexer.config_parsers.docker_compose import ParsedComposeFile, parse_docker_compose
@@ -368,7 +375,10 @@ def run_extraction(
     existing_claims = claim_store.list_claims(repo_id=repo_id)
     unique, duplicates = builder.deduplicate(new_claims, existing_claims)
 
-    for claim in unique:
+    # Security scanning: injection + secret detection on claims before storing.
+    scanned = [_security_scan_claim(claim, warnings) for claim in unique]
+
+    for claim in scanned:
         claim_store.save(claim)
 
     # Phase 13: Conflict detection (needs all claims stored)
@@ -569,6 +579,46 @@ def _build_guardrail_claims(
         )
         claims.append(claim)
     return claims
+
+
+def _security_scan_claim(claim: Claim, warnings: list[str]) -> Claim:
+    """Scan a single claim's content for injection markers and secrets.
+
+    Returns a (possibly modified) claim with:
+    - Injection warnings appended (HIGH severity → needs-declaration)
+    - Secret values redacted, sensitivity forced to local-only
+    """
+    # Injection scanning.
+    injection_findings = scan_for_injection(claim.content)
+    if injection_findings:
+        sev = max_injection_severity(injection_findings)
+        markers = [f.marker for f in injection_findings]
+        warn_msg = f"Potential injection marker detected in claim {claim.id}: {markers}"
+        warnings.append(warn_msg)
+        logger.warning("Injection markers in extracted claim", claim_id=claim.id, markers=markers)
+
+        if sev == Severity.HIGH:
+            claim = replace(claim, review_state=ReviewState.NEEDS_DECLARATION)
+
+    # Secret scanning.
+    secret_findings = scan_for_secrets(claim.content)
+    if secret_findings:
+        types = [f.pattern_type for f in secret_findings]
+        warn_msg = (
+            f"Potential secret detected in claim {claim.id} ({types}). Claim marked as local-only."
+        )
+        warnings.append(warn_msg)
+        logger.warning("Secret detected in extracted claim", claim_id=claim.id, types=types)
+
+        # Redact secrets in content and force local-only.
+        redacted_content = redact_secrets(claim.content, secret_findings)
+        claim = replace(
+            claim,
+            content=redacted_content,
+            sensitivity=Sensitivity.LOCAL_ONLY,
+        )
+
+    return claim
 
 
 def _store_profiles(

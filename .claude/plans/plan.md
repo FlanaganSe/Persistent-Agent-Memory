@@ -317,15 +317,13 @@ _Goal: Complete the human governance loop, harden security before import, implem
   - **Verification**: Review workflow persists decisions correctly. Overrides round-trip: write → clone on new machine → `rkp init` → same approved/suppressed state. Apply writes expected files with correct content. Purge hard-deletes and logs. Audit trail captures all actions. Declaration prompts surfaced and answerable.
   - **AC coverage**: AC-10 (no write without review), AC-11 (full correction workflow including declaration prompts), AC-17 (audit trail + purge), AC-23 (version-controlled overrides, regenerable local state)
 
-- [ ] **M10: Security hardening**
-  - Prompt injection defense: scan extracted content and MCP responses for injection markers (`[INST]`, `System:`, `role:`, `ignore previous`, `<|im_start|>`)
-  - Content typing: structured JSON responses with explicit `content_type` fields. Claim content is data, not meta-instructions.
-  - Secret detection: lightweight entropy + regex (patterns from detect-secrets). Auto-flag as `sensitivity: local-only`.
-  - Sensitivity enforcement validation: comprehensive testing of single filter point at last stage before output (projection and MCP)
-  - Source allowlist enforcement: validate that only configured sources influence claims
-  - Response filtering: scan MCP responses for meta-instruction patterns before serving
-  - Full security test suite: injection attempts, path traversal, secret detection, leakage prevention
-  - Data boundary testing: verify no repo content transmitted off machine by RKP
+- [x] **M10: Security hardening**
+  - [x] Step 1 — Extend `src/rkp/core/security.py`: InjectionFinding/SecretFinding models, scan_for_injection() with severity/code-block-allowlisting, scan_for_secrets() with regex+entropy, redact_secrets(). Create `src/rkp/server/response_filter.py` for MCP response scanning → verify: `uv run ruff check src/rkp/core/security.py src/rkp/server/response_filter.py && uv run pyright src/rkp/core/security.py src/rkp/server/response_filter.py`
+  - [x] Step 2 — Integrate scanning into orchestrator (post-extraction, pre-store) and MCP response path (decorator on all tool handlers in mcp.py) → verify: `uv run ruff check src/rkp/indexer/orchestrator.py src/rkp/server/mcp.py && uv run pyright src/rkp/indexer/orchestrator.py src/rkp/server/mcp.py`
+  - [x] Step 3 — Unit tests: test_injection_detection.py, test_secret_detection.py, test_response_filter.py → verify: `uv run pytest tests/unit/test_injection_detection.py tests/unit/test_secret_detection.py tests/unit/test_response_filter.py -v`
+  - [x] Step 4 — Integration tests: test_sensitivity_enforcement.py, test_allowlist_enforcement.py, test_data_boundary.py → verify: `uv run pytest tests/integration/test_sensitivity_enforcement.py tests/integration/test_allowlist_enforcement.py tests/integration/test_data_boundary.py -v`
+  - [x] Step 5 — Full verification: all 519+ existing tests pass + new tests, ruff, pyright → verify: `uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright && uv run pytest`
+  Commit: "feat: M10 security hardening — injection defense, secret detection, response filtering"
   - **Verification**: No injection markers pass through to MCP responses (with allowlisting for legitimate content). Path traversal blocked. Secrets detected and flagged. Sensitivity filter never leaks. Source allowlists enforced.
   - **AC coverage**: AC-14 (data boundary verified), AC-24 (sensitivity field enforced, leakage tested)
 

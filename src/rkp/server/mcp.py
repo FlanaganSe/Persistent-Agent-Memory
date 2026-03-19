@@ -7,12 +7,13 @@ import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from fastmcp import Context, FastMCP
 
 from rkp.core.config import RkpConfig
+from rkp.server.response_filter import filter_response
 from rkp.server.tools import (
     get_claim,
     get_conflicts,
@@ -77,7 +78,14 @@ def _ctx_repo_root(ctx: Context) -> Path | None:
 
 
 def _json(resp: Any) -> str:
-    return json.dumps(resp.to_dict(), indent=2)
+    """Serialize a ToolResponse to JSON, applying response filtering."""
+    raw: dict[str, Any] = cast(dict[str, Any], resp.to_dict())
+    data = raw.get("data")
+    existing_warnings: list[str] = [str(w) for w in cast(list[Any], raw.get("warnings", []))]
+    if isinstance(data, dict):
+        _, updated_warnings = filter_response(cast(dict[str, Any], data), existing_warnings)
+        raw["warnings"] = updated_warnings
+    return json.dumps(raw, indent=2)
 
 
 # -- paginated / detail-level tools --

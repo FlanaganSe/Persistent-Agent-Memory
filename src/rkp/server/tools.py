@@ -15,12 +15,13 @@ from typing import Any
 
 from rkp.core.config import SourceAllowlist
 from rkp.core.models import Claim
-from rkp.core.types import ClaimType, source_authority_precedence
+from rkp.core.types import ClaimType, Sensitivity, source_authority_precedence
 from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter, is_enforceable_restriction
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
+from rkp.projection.sensitivity import filter_sensitive
 from rkp.server.response import (
     ToolResponse,
     make_error_response,
@@ -137,6 +138,16 @@ def paginate_claims(
     return page, next_cursor, has_more, total
 
 
+def exclude_local_only(claims: list[Claim]) -> list[Claim]:
+    """Exclude local-only claims from MCP tool outputs.
+
+    MCP responses are the agent interface — local-only data should never
+    appear in tool responses since agents may project it into non-local output.
+    """
+    included, _ = filter_sensitive(claims, Sensitivity.PUBLIC)
+    return included
+
+
 def enforce_allowlist(
     claims: list[Claim],
     allowlist: SourceAllowlist | None,
@@ -202,6 +213,7 @@ def get_validated_commands(
     if scope != "**":
         claims = [c for c in claims if c.scope == scope or c.scope == "**"]
     claims = enforce_allowlist(claims, allowlist)
+    claims = exclude_local_only(claims)
 
     page, nc, hm, total = paginate_claims(claims, limit=limit, cursor=cursor)
 
@@ -265,6 +277,7 @@ def get_conventions(
 
     all_conventions.sort(key=lambda c: (source_authority_precedence(c.source_authority), c.id))
     all_conventions = enforce_allowlist(all_conventions, allowlist)
+    all_conventions = exclude_local_only(all_conventions)
 
     page, nc, hm, total = paginate_claims(
         all_conventions, limit=limit, cursor=cursor, pre_sorted=True
@@ -307,6 +320,7 @@ def get_prerequisites(
             c for c in prereq_claims if c.scope == command_or_scope or c.scope == "**"
         ]
     prereq_claims = enforce_allowlist(prereq_claims, allowlist)
+    prereq_claims = exclude_local_only(prereq_claims)
 
     profiles = _get_profiles(db, repo_id=repo_id)
 
@@ -398,6 +412,7 @@ def get_module_info(
         repo_id=repo_id if repo_id else None,
     )
     boundary_claims = enforce_allowlist(boundary_claims, allowlist)
+    boundary_claims = exclude_local_only(boundary_claims)
     module_claims = [c for c in boundary_claims if c.scope == module or module in c.content]
 
     scoped_rules = store.list_claims(
@@ -405,6 +420,7 @@ def get_module_info(
         repo_id=repo_id if repo_id else None,
     )
     scoped_rules = enforce_allowlist(scoped_rules, allowlist)
+    scoped_rules = exclude_local_only(scoped_rules)
     applicable_rules = [
         {"id": r.id, "content": r.content, "confidence": r.confidence}
         for r in scoped_rules
@@ -460,6 +476,7 @@ def get_conflicts(
             c for c in conflict_claims if c.scope == path_or_scope or c.scope == "**"
         ]
     conflict_claims = enforce_allowlist(conflict_claims, allowlist)
+    conflict_claims = exclude_local_only(conflict_claims)
 
     page, nc, hm, total = paginate_claims(conflict_claims, limit=limit, cursor=cursor)
 
@@ -505,6 +522,7 @@ def get_guardrails(
             c for c in guardrail_claims if c.scope == path_or_scope or c.scope == "**"
         ]
     guardrail_claims = enforce_allowlist(guardrail_claims, allowlist)
+    guardrail_claims = exclude_local_only(guardrail_claims)
 
     page, nc, hm, total = paginate_claims(guardrail_claims, limit=limit, cursor=cursor)
 
@@ -550,6 +568,7 @@ def get_instruction_preview(
     store = SqliteClaimStore(db)
     claims = store.list_claims(repo_id=repo_id if repo_id else None)
     claims = enforce_allowlist(claims, allowlist)
+    claims = exclude_local_only(claims)
 
     if consumer in ("codex", "agents-md"):
         adapter = AgentsMdAdapter()
@@ -673,6 +692,7 @@ def get_repo_overview(
         claim_type=ClaimType.VALIDATED_COMMAND,
         repo_id=repo_id if repo_id else None,
     )
+    cmd_claims = exclude_local_only(cmd_claims)
     entrypoints = [c.content for c in cmd_claims]
 
     return make_ok_response(
@@ -717,6 +737,11 @@ def get_claim(
 
     if claim is None:
         return make_error_response(f"Claim not found: {claim_id}")
+
+    if claim.sensitivity == Sensitivity.LOCAL_ONLY:
+        return make_error_response(
+            f"Claim {claim_id} is local-only and cannot be accessed via MCP"
+        )
 
     ev_store = SqliteEvidenceStore(db)
     hist_store = SqliteHistoryStore(db)
@@ -810,6 +835,7 @@ def get_preflight_context(
     if task_context is not None:
         rules = [c for c in rules if "all" in c.applicability or task_context in c.applicability]
     rules = enforce_allowlist(rules, allowlist)
+    rules = exclude_local_only(rules)
     rules.sort(key=lambda c: (source_authority_precedence(c.source_authority), c.id))
 
     # Validated commands for this scope
@@ -819,6 +845,7 @@ def get_preflight_context(
     )
     commands = [c for c in commands if c.scope == path_or_symbol or c.scope == "**"]
     commands = enforce_allowlist(commands, allowlist)
+    commands = exclude_local_only(commands)
 
     # Guardrails
     guardrails_raw = store.list_claims(
@@ -827,6 +854,7 @@ def get_preflight_context(
     )
     guardrails_raw = [c for c in guardrails_raw if c.scope == path_or_symbol or c.scope == "**"]
     guardrails_raw = enforce_allowlist(guardrails_raw, allowlist)
+    guardrails_raw = exclude_local_only(guardrails_raw)
 
     guardrail_items: list[dict[str, Any]] = []
     for g in guardrails_raw:
