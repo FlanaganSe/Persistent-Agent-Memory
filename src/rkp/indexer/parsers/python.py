@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,9 @@ logger = structlog.get_logger()
 # Module-level singletons — created once, reused across files.
 _LANGUAGE = get_language("python")
 _PARSER = get_parser("python")
+
+# Pre-compiled regex for SCREAMING_SNAKE constant detection.
+_SCREAMING_SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
 
 # --- Query patterns ---
 
@@ -179,18 +183,19 @@ def _count_annotated_params(params_node: Node) -> tuple[int, int]:
     return total, annotated
 
 
-def _has_tree_errors(node: Node) -> bool:
-    """Check if the tree contains ERROR nodes."""
-    if node.type == "ERROR":
-        return True
-    return any(_has_tree_errors(child) for child in node.children)
+def _has_tree_errors(root: Node) -> bool:
+    """Check if the tree contains ERROR nodes using an iterative approach."""
+    stack: list[Node] = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "ERROR":
+            return True
+        stack.extend(node.children)
+    return False
 
 
 def _extract_constants(root: Node) -> tuple[str, ...]:
     """Extract module-level constant names (SCREAMING_SNAKE assignments)."""
-    import re
-
-    screaming_re = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
     constants: list[str] = []
     for child in root.children:
         # Assignments may be direct children or wrapped in expression_statement
@@ -206,7 +211,7 @@ def _extract_constants(root: Node) -> tuple[str, ...]:
             left = assignment.child_by_field_name("left")
             if left is not None and left.type == "identifier":
                 name = _text(left)
-                if screaming_re.match(name):
+                if _SCREAMING_SNAKE_RE.match(name):
                     constants.append(name)
     return tuple(constants)
 
@@ -233,16 +238,9 @@ def parse_python_file(path: Path, source: bytes | None = None) -> ParsedPythonFi
     if has_errors:
         logger.warning("Python file has parse errors", path=str(path))
 
-    # Extract functions
-    functions = _extract_functions(root, source)
-
-    # Extract classes
+    functions = _extract_functions(root)
     classes = _extract_classes(root)
-
-    # Extract imports
-    imports = _extract_imports(root, source)
-
-    # Extract constants
+    imports = _extract_imports(root)
     constants = _extract_constants(root)
 
     return ParsedPythonFile(
@@ -255,8 +253,12 @@ def parse_python_file(path: Path, source: bytes | None = None) -> ParsedPythonFi
     )
 
 
-def _extract_functions(root: Node, source: bytes) -> tuple[ParsedFunction, ...]:
-    """Extract all function definitions from the tree."""
+def _extract_functions(root: Node) -> tuple[ParsedFunction, ...]:
+    """Extract all function definitions from the tree.
+
+    Uses parent-node lookup (not index correlation) to match captures
+    to their owning function_definition, avoiding non-deterministic ordering.
+    """
     cursor = QueryCursor(_FUNC_QUERY)
     captures = cursor.captures(root)
 
@@ -269,46 +271,41 @@ def _extract_functions(root: Node, source: bytes) -> tuple[ParsedFunction, ...]:
     params_nodes = captures.get("params", [])
     return_type_nodes = captures.get("return_type", [])
 
-    # Build a map from func_name node id to return_type presence
-    # Return type nodes appear when the function has a return type annotation
+    # Build lookup maps by parent function_definition tree-sitter node.id
+    # (not Python id() which differs across wrapper objects for the same node)
+    params_by_func: dict[int, Node] = {}
+    for p_node in params_nodes:
+        if p_node.parent is not None:
+            params_by_func[p_node.parent.id] = p_node
+
     return_type_func_ids: set[int] = set()
     for rt_node in return_type_nodes:
-        # Walk up to find the function_definition
         parent = rt_node.parent
         if parent is not None and parent.type == "function_definition":
-            name_node = parent.child_by_field_name("name")
-            if name_node is not None:
-                return_type_func_ids.add(name_node.id)
+            return_type_func_ids.add(parent.id)
 
     functions: list[ParsedFunction] = []
-    for i, name_node in enumerate(func_name_nodes):
+    for name_node in func_name_nodes:
         name = _text(name_node)
         func_def = name_node.parent
         if func_def is None:
             continue
 
-        # Get line range
         line_start = func_def.start_point[0] + 1  # 1-indexed
         line_end = func_def.end_point[0] + 1
 
-        # Get params
-        params_node = params_nodes[i] if i < len(params_nodes) else None
+        # Look up params by tree-sitter node.id, not by list index
+        params_node = params_by_func.get(func_def.id)
         param_count = 0
         annotated_count = 0
         if params_node is not None:
             param_count, annotated_count = _count_annotated_params(params_node)
 
-        # Return type
-        has_return_type = name_node.id in return_type_func_ids
+        has_return_type = func_def.id in return_type_func_ids
 
-        # Docstring
         body = _get_body(func_def)
         has_docstring = _has_docstring(body)
-
-        # Decorators
         decorators = _get_decorators(func_def)
-
-        # Is test
         is_test = name in test_names
 
         functions.append(
@@ -336,19 +333,15 @@ def _extract_classes(root: Node) -> tuple[ParsedClass, ...]:
     class_name_nodes = captures.get("class_name", [])
     bases_nodes = captures.get("bases", [])
 
-    # Build bases lookup by class node id
+    # Build bases lookup by parent class_definition tree-sitter node.id
     bases_by_class: dict[int, tuple[str, ...]] = {}
     for bases_node in bases_nodes:
         parent = bases_node.parent
         if parent is not None and parent.type == "class_definition":
-            name_node = parent.child_by_field_name("name")
-            if name_node is not None:
-                base_names = tuple(
-                    _text(child)
-                    for child in bases_node.children
-                    if child.type not in ("(", ")", ",")
-                )
-                bases_by_class[name_node.id] = base_names
+            base_names = tuple(
+                _text(child) for child in bases_node.children if child.type not in ("(", ")", ",")
+            )
+            bases_by_class[parent.id] = base_names
 
     classes: list[ParsedClass] = []
     for name_node in class_name_nodes:
@@ -360,7 +353,7 @@ def _extract_classes(root: Node) -> tuple[ParsedClass, ...]:
         line_start = class_def.start_point[0] + 1
         line_end = class_def.end_point[0] + 1
 
-        bases = bases_by_class.get(name_node.id, ())
+        bases = bases_by_class.get(class_def.id, ())
 
         body = _get_body(class_def)
         has_docstring = _has_docstring(body)
@@ -378,27 +371,49 @@ def _extract_classes(root: Node) -> tuple[ParsedClass, ...]:
     return tuple(classes)
 
 
-def _extract_imports(root: Node, source: bytes) -> tuple[ParsedImport, ...]:
-    """Extract all import statements from the tree."""
+def _extract_imports(root: Node) -> tuple[ParsedImport, ...]:
+    """Extract all import statements from the tree.
+
+    Handles both absolute imports (import X, from X import Y) and
+    relative imports (from . import Y, from ..X import Y) by walking
+    the tree for import_from_statement nodes with relative_import children.
+    """
     imports: list[ParsedImport] = []
 
-    # Regular imports
+    # Regular imports (import X)
     cursor = QueryCursor(_IMPORT_QUERY)
     captures = cursor.captures(root)
     imports.extend(
         ParsedImport(module=_text(node), is_relative=False) for node in captures.get("module", [])
     )
 
-    # From imports
+    # From imports with dotted_name (from X import Y — absolute)
     cursor2 = QueryCursor(_IMPORT_FROM_QUERY)
     captures2 = cursor2.captures(root)
-    for node in captures2.get("source", []):
-        # Check if the import_from_statement has leading dots (relative)
-        parent = node.parent
-        is_relative = False
-        if parent is not None:
-            import_text = _text(parent)
-            is_relative = import_text.lstrip().startswith("from .")
-        imports.append(ParsedImport(module=_text(node), is_relative=is_relative))
+    imports.extend(
+        ParsedImport(module=_text(node), is_relative=False) for node in captures2.get("source", [])
+    )
+
+    # Walk tree for relative imports (from . import Y, from ..X import Y)
+    # These have relative_import as module_name, not dotted_name, so the
+    # query above won't match them.
+    _collect_relative_imports(root, imports)
 
     return tuple(imports)
+
+
+def _collect_relative_imports(node: Node, imports: list[ParsedImport]) -> None:
+    """Walk the tree to find import_from_statement nodes with relative imports."""
+    if node.type == "import_from_statement":
+        module_name = node.child_by_field_name("module_name")
+        if module_name is not None and module_name.type == "relative_import":
+            # Extract the dotted_name inside the relative_import, if any
+            for child in module_name.children:
+                if child.type == "dotted_name":
+                    imports.append(ParsedImport(module=_text(child), is_relative=True))
+                    return
+            # Bare relative import (from . import X) — no dotted_name
+            imports.append(ParsedImport(module=".", is_relative=True))
+            return
+    for child in node.children:
+        _collect_relative_imports(child, imports)

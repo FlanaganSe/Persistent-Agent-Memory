@@ -105,7 +105,7 @@ class CliGitBackend:
 
     def file_hash(self, path: Path) -> str:
         """Return the git blob OID (SHA-1 hash) for a file."""
-        result = self._run("hash-object", str(path))
+        result = self._run("hash-object", "--", str(path))
         if result.returncode != 0:
             logger.warning("git hash-object failed", path=str(path), stderr=result.stderr.strip())
             return ""

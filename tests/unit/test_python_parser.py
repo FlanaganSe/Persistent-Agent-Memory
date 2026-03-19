@@ -57,14 +57,19 @@ import os
 import sys
 from pathlib import Path
 from . import local_module
+from ..sibling import helper
 """
         result = parse_python_file(Path("test.py"), source=source)
-        assert len(result.imports) >= 3
+        assert len(result.imports) >= 4
 
         modules = [i.module for i in result.imports]
         assert "os" in modules
         assert "sys" in modules
         assert "pathlib" in modules
+
+        # Relative imports detected
+        relative = [i for i in result.imports if i.is_relative]
+        assert len(relative) == 2
 
     def test_extract_test_functions(self) -> None:
         source = b"""
@@ -123,3 +128,36 @@ class Foo:
         method = next(f for f in result.functions if f.name == "method")
         assert method.param_count == 1  # self excluded
         assert method.annotated_param_count == 1
+
+    def test_multi_method_class_params_correct(self) -> None:
+        """Multiple methods in a class get correct param counts (not index-correlated)."""
+        source = b"""
+class MyService:
+    def method_a(self, x: int, y: str) -> bool:
+        pass
+
+    def method_b(self) -> None:
+        pass
+
+    def method_c(self, name: str) -> str:
+        pass
+
+def top_level(a: int, b: int, c: int) -> int:
+    return a + b + c
+"""
+        result = parse_python_file(Path("test.py"), source=source)
+        funcs = {f.name: f for f in result.functions}
+
+        assert funcs["method_a"].param_count == 2
+        assert funcs["method_a"].annotated_param_count == 2
+        assert funcs["method_a"].has_return_type
+
+        assert funcs["method_b"].param_count == 0
+        assert funcs["method_b"].has_return_type
+
+        assert funcs["method_c"].param_count == 1
+        assert funcs["method_c"].annotated_param_count == 1
+
+        assert funcs["top_level"].param_count == 3
+        assert funcs["top_level"].annotated_param_count == 3
+        assert funcs["top_level"].has_return_type
