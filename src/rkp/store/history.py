@@ -50,6 +50,62 @@ class SqliteHistoryStore:
         ).fetchall()
         return [_row_to_history(r) for r in rows]
 
+    def query(
+        self,
+        *,
+        claim_id: str | None = None,
+        action: str | None = None,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[ClaimHistory]:
+        """Query history with optional filters.
+
+        Args:
+            claim_id: Filter to a specific claim.
+            action: Filter to a specific action type.
+            since: ISO timestamp lower bound.
+            limit: Max entries to return.
+        """
+        conditions: list[str] = []
+        params: list[str | int] = []
+
+        if claim_id is not None:
+            conditions.append("claim_id = ?")
+            params.append(claim_id)
+        if action is not None:
+            conditions.append("action = ?")
+            params.append(action)
+        if since is not None:
+            conditions.append("timestamp >= ?")
+            params.append(since)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        query_sql = f"SELECT * FROM claim_history WHERE {where} ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = self._db.execute(query_sql, params).fetchall()
+        return [_row_to_history(r) for r in rows]
+
+    def query_by_scope(
+        self,
+        scope: str,
+        *,
+        limit: int = 100,
+    ) -> list[ClaimHistory]:
+        """Query history for claims matching a scope prefix.
+
+        Joins with claims table to filter by scope.
+        """
+        # Escape LIKE metacharacters in user-supplied scope
+        escaped = scope.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = self._db.execute(
+            """SELECT h.* FROM claim_history h
+            JOIN claims c ON h.claim_id = c.id
+            WHERE c.scope LIKE ? ESCAPE '\\' OR c.scope = '**'
+            ORDER BY h.id DESC LIMIT ?""",
+            (escaped + "%", limit),
+        ).fetchall()
+        return [_row_to_history(r) for r in rows]
+
 
 def _row_to_history(row: sqlite3.Row) -> ClaimHistory:
     """Convert a database row to a ClaimHistory domain object."""

@@ -51,7 +51,7 @@ class TestRunMigrations:
         conn = open_database(tmp_path / "test.db")
         run_migrations(conn)
         version = get_user_version(conn)
-        assert version == 1
+        assert version == 2
         conn.close()
 
     def test_already_migrated(self, tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ class TestRunMigrations:
         run_migrations(conn)
         run_migrations(conn)  # should be idempotent
         version = get_user_version(conn)
-        assert version == 1
+        assert version == 2
         conn.close()
 
     def test_tables_created(self, tmp_path: Path) -> None:
@@ -79,6 +79,7 @@ class TestRunMigrations:
             "environment_profiles",
             "module_edges",
             "session_log",
+            "index_metadata",
         }
         assert expected.issubset(table_names)
         conn.close()

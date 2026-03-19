@@ -84,8 +84,27 @@ def status(
             "claude": "Preview available" if claims else "No claims indexed",
         }
 
-        # Index staleness (simple HEAD-based; full staleness is M14)
-        is_stale = False
+        # Index staleness via freshness system
+        from rkp.core.freshness import check_all_freshness
+        from rkp.store.evidence import SqliteEvidenceStore
+        from rkp.store.metadata import SqliteMetadataStore
+
+        evidence_store = SqliteEvidenceStore(db)
+        metadata_store = SqliteMetadataStore(db)
+        index_metadata = metadata_store.load()
+
+        freshness_report = None
+        if git_backend and claims:
+            freshness_report = check_all_freshness(
+                claim_store,
+                evidence_store,
+                git_backend,
+                state.config,
+                index_metadata=index_metadata,
+                repo_id=repo_id,
+            )
+
+        is_stale = freshness_report is not None and freshness_report.stale_claims > 0
 
         # Drift detection
         from rkp.store.artifacts import SqliteArtifactStore
@@ -120,6 +139,21 @@ def status(
                         "unsupported": sorted(unsupported_langs),
                     },
                     "adapters": adapters,
+                    "freshness": {
+                        "last_indexed": index_metadata.last_indexed if index_metadata else None,
+                        "index_head": index_metadata.repo_head if index_metadata else None,
+                        "index_branch": index_metadata.branch if index_metadata else None,
+                        "stale_claims": freshness_report.stale_claims if freshness_report else 0,
+                        "stale_by_trigger": freshness_report.stale_by_trigger
+                        if freshness_report
+                        else {},
+                        "head_changed": freshness_report.head_changed
+                        if freshness_report
+                        else False,
+                        "branch_changed": freshness_report.branch_changed
+                        if freshness_report
+                        else False,
+                    },
                     "managed_files": {
                         "total": len(drift_report.clean_files)
                         + drift_count
@@ -155,6 +189,35 @@ def status(
                 )
             else:
                 console.print("  [green]Index is current[/green]")
+
+            # Freshness section
+            if freshness_report or index_metadata:
+                console.print()
+                console.print("[bold]Freshness[/bold]")
+                if index_metadata:
+                    console.print(f"  Last indexed: {index_metadata.last_indexed}")
+                    if freshness_report:
+                        if freshness_report.head_changed:
+                            console.print(
+                                f"  Index HEAD: {index_metadata.repo_head[:12]} "
+                                f"-> Current HEAD: {freshness_report.head_current[:12]} "
+                                f"[yellow](HEAD has changed)[/yellow]"
+                            )
+                        if freshness_report.branch_changed:
+                            console.print(
+                                f"  Index branch: {index_metadata.branch} "
+                                f"-> Current branch: {freshness_report.branch_current} "
+                                f"[yellow](branch changed)[/yellow]"
+                            )
+                if freshness_report and freshness_report.stale_claims > 0:
+                    console.print()
+                    console.print(
+                        f"  [yellow]{freshness_report.stale_claims} claim(s) may be stale:[/yellow]"
+                    )
+                    for trigger, count in sorted(freshness_report.stale_by_trigger.items()):
+                        console.print(f"    {count} — {trigger}")
+                    console.print()
+                    console.print("  Run [bold]rkp refresh[/bold] to update the index.")
 
             # Section 2: Claim summary
             console.print()

@@ -375,11 +375,13 @@ _Goal: Formal quality measurement, adapter maturity promotion, remaining feature
   - **Verification**: Extraction precision >=80%. Export conformance >=95% for GA adapters. Zero sensitivity leakage. 250k LOC benchmark within 5 minutes. Trace capture producing logs.
   - **AC coverage**: AC-1 (250k LOC verified), AC-19 (quality harness complete), AC-24 (leakage tested), AC-26 (trace capture)
 
-- [ ] **M14: Refresh + audit + stale-claim revalidation**
-  - `src/rkp/cli/commands/refresh.py` — `rkp refresh`: re-analyze repo, present diff of what changed in claim model
-  - Stale-claim revalidation: evidence-triggered (file changed → claim flagged), branch-aware (validate against current branch), drift-aware (managed artifact edited → affected claims flagged), time-based fallback (90 days default, configurable)
-  - `src/rkp/cli/commands/audit.py` — `rkp audit [--claim-id X] [--scope path]`
-  - Extend `rkp status` with staleness indicators
+- [x] **M14: Refresh + audit + stale-claim revalidation**
+  - [x] Step 1 — Schema migration + IndexMetadata store + config update: `0002_index_metadata.sql`, `src/rkp/store/metadata.py`, extend `RkpConfig` with `confidence_reduction_on_stale`, extend `SqliteHistoryStore` with audit query methods → verify: `uv run ruff check src/rkp/store/metadata.py src/rkp/store/migrations/0002_index_metadata.sql src/rkp/core/config.py src/rkp/store/history.py && uv run pyright src/rkp/store/metadata.py src/rkp/core/config.py src/rkp/store/history.py`
+  - [x] Step 2 — Freshness tracking model (`src/rkp/core/freshness.py`): FreshnessState, FreshnessReport, check_claim_freshness, check_all_freshness, effective_confidence → verify: `uv run ruff check src/rkp/core/freshness.py && uv run pyright src/rkp/core/freshness.py`
+  - [x] Step 3 — CLI commands + MCP: refresh.py, audit.py, extend status.py + init.py, register in app.py, add freshness to MCP response envelope + tools → verify: `uv run ruff check src/rkp/cli src/rkp/server && uv run pyright src/rkp/cli src/rkp/server`
+  - [x] Step 4 — Tests: unit (freshness, metadata, migration, freshness_audit), integration (refresh CLI, audit CLI, status freshness, MCP freshness) → verify: `uv run pytest tests/ -x`
+  - [x] Step 5 — Full verification → verify: `uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright && uv run pytest`
+  Commit: "feat: M14 refresh + audit + stale-claim revalidation"
   - **Verification**: Refresh correctly identifies changed claims. Stale claims flagged on evidence change. Branch switch detected and handled. Audit trail queryable by claim and scope.
   - **AC coverage**: AC-20 (evidence-triggered + branch-aware + drift-aware revalidation)
 

@@ -69,5 +69,6 @@ class RkpConfig(BaseSettings):
         "__pycache__",
         ".git",
     )
+    confidence_reduction_on_stale: float = 0.2
     trace_enabled: bool = True
     source_allowlist: SourceAllowlist = SourceAllowlist()

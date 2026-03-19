@@ -24,6 +24,7 @@ from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.projection.sensitivity import filter_sensitive
 from rkp.server.response import (
+    ResponseFreshness,
     ToolResponse,
     make_error_response,
     make_ok_response,
@@ -49,6 +50,37 @@ def _get_index_version(db: sqlite3.Connection) -> str:
 def _has_claims(db: sqlite3.Connection) -> bool:
     row = db.execute("SELECT COUNT(*) as cnt FROM claims").fetchone()
     return bool(row and int(row["cnt"]) > 0)
+
+
+def _compute_freshness(
+    claims: list[Claim],
+    db: sqlite3.Connection,
+) -> ResponseFreshness:
+    """Compute freshness metadata for a set of claims in a response."""
+    stale_count = sum(1 for c in claims if c.stale)
+    # Check index age from metadata table
+    index_age = 0
+    head_current = True
+    try:
+        from rkp.store.metadata import SqliteMetadataStore
+
+        meta = SqliteMetadataStore(db).load()
+        if meta:
+            from datetime import UTC, datetime
+
+            try:
+                indexed_at = datetime.fromisoformat(meta.last_indexed)
+                index_age = int((datetime.now(UTC) - indexed_at).total_seconds())
+            except ValueError:
+                pass
+            head_current = meta is None or stale_count == 0
+    except Exception:
+        pass
+    return ResponseFreshness(
+        index_age_seconds=index_age,
+        stale_claims_in_response=stale_count,
+        head_current=head_current,
+    )
 
 
 def render_claim(
@@ -93,6 +125,13 @@ def render_claim(
             claim.last_validated.isoformat() if claim.last_validated else None
         )
         result["revalidation_trigger"] = claim.revalidation_trigger
+        if claim.stale:
+            from rkp.core.config import RkpConfig as _Cfg
+
+            result["effective_confidence"] = claim.confidence * (
+                1.0 - _Cfg().confidence_reduction_on_stale
+            )
+            result["staleness_reason"] = claim.revalidation_trigger
         if evidence_store is not None:
             evidence_records = evidence_store.get_for_claim(claim.id)
             result["evidence_chain"] = [
@@ -228,11 +267,21 @@ def get_validated_commands(
             item["source"] = list(claim.evidence)
         items.append(item)
 
+    resp_freshness = _compute_freshness(claims, db)
+    warn_list = list[str]()
+    if resp_freshness.stale_claims_in_response > 0:
+        warn_list.append(
+            f"{resp_freshness.stale_claims_in_response} claim(s) in response are stale "
+            "— run rkp refresh to revalidate"
+        )
+
     return make_ok_response(
         data=_paginated_data(items, nc, total, hm),
         repo_head=repo_head,
         branch=branch,
         index_version=idx,
+        warnings=tuple(warn_list),
+        freshness=resp_freshness,
     )
 
 

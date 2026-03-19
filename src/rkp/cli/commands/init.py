@@ -225,7 +225,21 @@ def init(
             graph=graph,
         )
 
-        # 5. Load overrides from .rkp/overrides/ (round-trip guarantee, AC-23).
+        # 5. Save index metadata
+        from rkp.store.metadata import IndexMetadata, SqliteMetadataStore
+
+        metadata_store = SqliteMetadataStore(db)
+        metadata_store.save(
+            IndexMetadata(
+                last_indexed=SqliteMetadataStore.now_iso(),
+                repo_head=git_backend.head() if git_backend else "",
+                branch=branch,
+                file_count=summary.files_parsed,
+                claim_count=summary.claims_created,
+            )
+        )
+
+        # 6. Load overrides from .rkp/overrides/ (round-trip guarantee, AC-23).
         overrides_dir = rkp_dir / "overrides"
         if overrides_dir.exists() and any(overrides_dir.glob("*.yaml")):
             from rkp.store.overrides import FileSystemOverrideStore

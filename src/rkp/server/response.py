@@ -26,6 +26,15 @@ class ResponseProvenance:
 
 
 @dataclass(frozen=True)
+class ResponseFreshness:
+    """Freshness metadata for MCP responses."""
+
+    index_age_seconds: int = 0
+    stale_claims_in_response: int = 0
+    head_current: bool = True
+
+
+@dataclass(frozen=True)
 class ToolResponse:
     """Standard envelope for every MCP tool response.
 
@@ -39,6 +48,7 @@ class ToolResponse:
     data: object = None
     warnings: tuple[str, ...] = ()
     provenance: ResponseProvenance = ResponseProvenance()
+    freshness: ResponseFreshness = ResponseFreshness()
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to a JSON-compatible dict with consistent envelope."""
@@ -54,6 +64,11 @@ class ToolResponse:
                 "branch": self.provenance.branch,
                 "timestamp": self.provenance.timestamp,
             },
+            "freshness": {
+                "index_age_seconds": self.freshness.index_age_seconds,
+                "stale_claims_in_response": self.freshness.stale_claims_in_response,
+                "head_current": self.freshness.head_current,
+            },
         }
 
 
@@ -64,6 +79,7 @@ def make_ok_response(
     branch: str = "",
     index_version: str = "",
     warnings: tuple[str, ...] = (),
+    freshness: ResponseFreshness | None = None,
 ) -> ToolResponse:
     """Create a successful response with provenance."""
     return ToolResponse(
@@ -76,6 +92,7 @@ def make_ok_response(
             branch=branch,
             timestamp=_now_iso(),
         ),
+        freshness=freshness or ResponseFreshness(),
     )
 
 
