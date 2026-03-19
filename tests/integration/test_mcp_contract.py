@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,8 +29,6 @@ def populated_mcp_db(mcp_db: sqlite3.Connection) -> sqlite3.Connection:
     store = SqliteClaimStore(mcp_db)
     builder = ClaimBuilder(repo_id="test-repo", branch="main")
 
-    from dataclasses import replace
-
     claim1 = builder.build(
         content="pytest",
         claim_type=ClaimType.VALIDATED_COMMAND,
@@ -50,16 +49,35 @@ def populated_mcp_db(mcp_db: sqlite3.Connection) -> sqlite3.Connection:
     claim2 = replace(claim2, risk_class=RiskClass.SAFE_READONLY)
     store.save(claim2)
 
+    # Add convention claims
+    claim3 = builder.build(
+        content="Use snake_case for function names (100% consistency across 30 identifiers)",
+        claim_type=ClaimType.ALWAYS_ON_RULE,
+        source_authority=SourceAuthority.INFERRED_HIGH,
+        confidence=1.0,
+        applicability=("all",),
+        evidence=("src/core.py", "src/utils.py"),
+    )
+    store.save(claim3)
+
+    claim4 = builder.build(
+        content="Tests are placed in tests/ directory (100% of test files)",
+        claim_type=ClaimType.ALWAYS_ON_RULE,
+        source_authority=SourceAuthority.INFERRED_HIGH,
+        confidence=1.0,
+        applicability=("testing",),
+        evidence=("tests/test_core.py",),
+    )
+    store.save(claim4)
+
     return mcp_db
 
 
 def _extract_text(result: object) -> str:
     """Extract text from a CallToolResult."""
-    # FastMCP returns CallToolResult with .content list of TextContent
     content = getattr(result, "content", None)
     if content and len(content) > 0:
         return str(content[0].text)
-    # Fallback for different API versions
     return str(result)
 
 
@@ -128,3 +146,79 @@ async def test_command_fields(populated_mcp_db: sqlite3.Connection) -> None:
             assert "evidence_level" in cmd
             assert "source" in cmd
             assert "confidence" in cmd
+
+
+# --- get_conventions tests ---
+
+
+@pytest.mark.asyncio
+async def test_get_conventions_returns_conventions(
+    populated_mcp_db: sqlite3.Connection,
+) -> None:
+    """get_conventions returns scoped conventions with correct envelope."""
+    from fastmcp import Client
+
+    server = create_server(db=populated_mcp_db)
+    async with Client(server) as client:
+        result = await client.call_tool("get_conventions_tool", {"path_or_symbol": "**"})
+        text = _extract_text(result)
+        response = json.loads(text)
+        assert response["status"] == "ok"
+        assert isinstance(response["data"], list)
+        assert len(response["data"]) == 2  # snake_case + test placement
+
+
+@pytest.mark.asyncio
+async def test_get_conventions_with_task_context(
+    populated_mcp_db: sqlite3.Connection,
+) -> None:
+    """get_conventions with task_context filters by applicability."""
+    from fastmcp import Client
+
+    server = create_server(db=populated_mcp_db)
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "get_conventions_tool",
+            {"path_or_symbol": "**", "task_context": "testing"},
+        )
+        text = _extract_text(result)
+        response = json.loads(text)
+        assert response["status"] == "ok"
+        # Should include both: "all" applicability + "testing" applicability
+        data = response["data"]
+        assert len(data) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_conventions_empty_repo(mcp_db: sqlite3.Connection) -> None:
+    """get_conventions on empty repo returns ok with empty data."""
+    from fastmcp import Client
+
+    server = create_server(db=mcp_db)
+    async with Client(server) as client:
+        result = await client.call_tool("get_conventions_tool", {"path_or_symbol": "**"})
+        text = _extract_text(result)
+        response = json.loads(text)
+        assert response["status"] == "ok"
+        assert response["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_conventions_with_evidence(
+    populated_mcp_db: sqlite3.Connection,
+) -> None:
+    """get_conventions with include_evidence returns evidence references."""
+    from fastmcp import Client
+
+    server = create_server(db=populated_mcp_db)
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "get_conventions_tool",
+            {"path_or_symbol": "**", "include_evidence": True},
+        )
+        text = _extract_text(result)
+        response = json.loads(text)
+        assert response["status"] == "ok"
+        for item in response["data"]:
+            assert "evidence" in item
+            assert isinstance(item["evidence"], list)

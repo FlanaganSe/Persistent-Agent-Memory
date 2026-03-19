@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from rkp.core.models import Claim
-from rkp.core.types import ClaimType, RiskClass, source_authority_precedence
+from rkp.core.types import ClaimType, RiskClass, SourceAuthority, source_authority_precedence
 from rkp.projection.adapters.base import AdapterResult
 from rkp.projection.budget import BudgetTracker
 from rkp.projection.capability_matrix import HostCapability
@@ -103,7 +103,23 @@ class AgentsMdAdapter:
         sorted_claims = _stable_sort_claims(claims)
 
         command_claims = [c for c in sorted_claims if c.claim_type == ClaimType.VALIDATED_COMMAND]
-        convention_claims = [c for c in sorted_claims if c.claim_type == ClaimType.ALWAYS_ON_RULE]
+        # Include always-on-rule and scoped-rule with inferred-high authority or better
+        # Per PRD §10: only high-confidence conventions in always-on content
+        _high_authority = frozenset(
+            {
+                SourceAuthority.HUMAN_OVERRIDE,
+                SourceAuthority.DECLARED_REVIEWED,
+                SourceAuthority.EXECUTABLE_CONFIG,
+                SourceAuthority.CI_OBSERVED,
+                SourceAuthority.INFERRED_HIGH,
+            }
+        )
+        convention_claims = [
+            c
+            for c in sorted_claims
+            if c.claim_type in (ClaimType.ALWAYS_ON_RULE, ClaimType.SCOPED_RULE)
+            and c.source_authority in _high_authority
+        ]
 
         all_claims = command_claims + convention_claims
         excluded: list[tuple[str, str]] = []

@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 from fastmcp import Context, FastMCP
 
-from rkp.server.tools import get_validated_commands
+from rkp.server.tools import get_conventions, get_validated_commands
 from rkp.store.database import open_database, run_migrations
 
 logger = structlog.get_logger()
@@ -59,6 +59,34 @@ def get_validated_commands_tool(
     return json.dumps(response.to_dict(), indent=2)
 
 
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_conventions_tool(
+    ctx: Context,
+    path_or_symbol: str = "**",
+    include_evidence: bool = False,
+    task_context: str | None = None,
+) -> str:
+    """Get conventions for a path or symbol with source authority and confidence.
+
+    Args:
+        path_or_symbol: Path or symbol to scope conventions to (default: ** for all)
+        include_evidence: Include evidence file references in response
+        task_context: Filter by applicability (e.g., "testing", "build")
+
+    Returns:
+        JSON response with convention claims including source authority,
+        confidence, applicability, and review state.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_conventions(
+        db,
+        path_or_symbol=path_or_symbol,
+        include_evidence=include_evidence,
+        task_context=task_context,
+    )
+    return json.dumps(response.to_dict(), indent=2)
+
+
 def create_server(
     *,
     db: sqlite3.Connection | None = None,
@@ -89,6 +117,23 @@ def create_server(
             """Get validated build/test/lint commands with evidence and risk classification."""
             db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
             response = get_validated_commands(db_conn, scope=scope)
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_conventions_tool", annotations={"readOnlyHint": True})
+        def _test_get_conventions(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            path_or_symbol: str = "**",
+            include_evidence: bool = False,
+            task_context: str | None = None,
+        ) -> str:
+            """Get conventions for a path or symbol."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_conventions(
+                db_conn,
+                path_or_symbol=path_or_symbol,
+                include_evidence=include_evidence,
+                task_context=task_context,
+            )
             return json.dumps(response.to_dict(), indent=2)
 
         return test_server

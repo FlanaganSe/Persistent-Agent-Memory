@@ -26,14 +26,11 @@ class TestOrchestrator:
         fixture_path = Path(__file__).parent.parent / "fixtures" / "simple_python"
         store = SqliteClaimStore(integration_db)
         summary = run_extraction(fixture_path, store, repo_id="test-repo")
-        assert summary.files_parsed == 1
+        assert summary.files_parsed >= 1
         assert summary.claims_created >= 1
 
         claims = store.list_claims(repo_id="test-repo")
         assert len(claims) >= 1
-        # All should be validated-command type
-        for claim in claims:
-            assert claim.claim_type == ClaimType.VALIDATED_COMMAND
 
     def test_idempotent_extraction(self, integration_db: sqlite3.Connection) -> None:
         """Running extraction twice produces the same claims (idempotent)."""
@@ -93,3 +90,32 @@ class TestOrchestrator:
         store = SqliteClaimStore(integration_db)
         summary = run_extraction(repo, store, repo_id="test")
         assert summary.claims_created == 2
+
+    def test_extract_conventions_from_fixture(self, integration_db: sqlite3.Connection) -> None:
+        """Convention extraction on the simple_python fixture."""
+        fixture_path = Path(__file__).parent.parent / "fixtures" / "simple_python"
+        store = SqliteClaimStore(integration_db)
+        summary = run_extraction(fixture_path, store, repo_id="test-repo")
+
+        # Should have found Python files and extracted conventions
+        assert summary.python_files_parsed > 0
+        assert summary.conventions_extracted > 0
+
+        # Check that convention claims exist
+        claims = store.list_claims(repo_id="test-repo")
+        convention_claims = [
+            c for c in claims if c.claim_type in (ClaimType.ALWAYS_ON_RULE, ClaimType.SCOPED_RULE)
+        ]
+        assert len(convention_claims) > 0
+
+    def test_fixture_has_convention_claims(self, integration_db: sqlite3.Connection) -> None:
+        """The fixture produces convention claims (e.g. type annotations, docstrings)."""
+        fixture_path = Path(__file__).parent.parent / "fixtures" / "simple_python"
+        store = SqliteClaimStore(integration_db)
+        run_extraction(fixture_path, store, repo_id="test-repo")
+
+        claims = store.list_claims(repo_id="test-repo")
+        convention_claims = [
+            c for c in claims if c.claim_type in (ClaimType.ALWAYS_ON_RULE, ClaimType.SCOPED_RULE)
+        ]
+        assert len(convention_claims) >= 1

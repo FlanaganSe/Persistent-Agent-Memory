@@ -16,7 +16,8 @@ dependencies = [
     "structlog>=25.0.0",
     "pyyaml>=6.0.0",
     "strictyaml>=1.7.0",
-    "typer[all]>=0.15.0,<1.0.0",
+    "typer>=0.15.0,<1.0.0",
+    "rich>=13.0.0",
     "fastmcp>=3.1.0,<4.0.0",
     "tree-sitter>=0.25.0,<1.0.0",
     "tree-sitter-language-pack>=0.13.0",
@@ -65,3 +66,4 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+norecursedirs = ["tests/fixtures"]

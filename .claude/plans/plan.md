@@ -240,16 +240,12 @@ _Goal: Get from zero to a working end-to-end vertical slice — config → claim
   - **AC coverage**: Partial AC-1 (first useful output path), AC-6 (get_validated_commands), partial AC-13 (provenance), partial AC-18 (thin projection)
 
 - [ ] **M3: Git backend + tree-sitter + Python convention extraction**
-  - `src/rkp/git/backend.py` — GitBackend Protocol
-  - `src/rkp/git/cli_backend.py` — repo_root, head, current_branch, worktree identity, list_tracked_files (tracked + untracked-not-ignored via `git ls-files --others --exclude-standard`), file_hash (git blob OID), diff_status, is_dirty
-  - File discovery: exclusion rules (vendor/, node_modules/, dist/, build/, __pycache__/, .git/), .gitignore respect, skip >1MB, support envelope classification
-  - `src/rkp/indexer/parsers/python.py` — tree-sitter queries (v0.25+ `QueryCursor` API): functions, classes, imports, tests, type annotations, decorators
-  - `src/rkp/indexer/extractors/conventions.py` — naming conventions (snake_case/camelCase/PascalCase), test file placement, test naming patterns, import structure, type annotation usage. Confidence thresholds: >=95% strong, 80-94% weak (flag for review), <80% no convention. Minimum 20 identifiers per category.
-  - Extend orchestrator: git-backed file discovery → tree-sitter parse → convention extraction → claim building
-  - Extend AGENTS.md projection with conventions
-  - Extend MCP: `get_conventions` tool
-  - `tests/fixtures/simple_python/` — extend with known conventions
-  - **Verification**: Conventions extracted from Python fixture repo match expected claims with >=80% precision. `get_conventions` returns scoped conventions with confidence and evidence. `rkp preview` includes extracted conventions. Incremental detection: changing one file only re-parses that file.
+  - [x] Step 1 — Git backend + tree-sitter parser + convention extractor + fixture files → verify: `ruff check src/rkp/git src/rkp/indexer/parsers src/rkp/indexer/extractors/conventions.py && pyright src/rkp/git src/rkp/indexer/parsers src/rkp/indexer/extractors/conventions.py`
+  - [x] Step 2 — Extend orchestrator + AGENTS.md projection + MCP tool + CLI → verify: `ruff check src/rkp/indexer/orchestrator.py src/rkp/projection/adapters/agents_md.py src/rkp/server && pyright src/rkp/indexer/orchestrator.py src/rkp/projection/adapters/agents_md.py src/rkp/server`
+  - [x] Step 3 — All tests (unit, integration, snapshot, MCP contract) → verify: `pytest tests/ -v`
+  - [x] Step 4 — Full verification → verify: `ruff check src tests && ruff format --check src tests && pyright && pytest`
+  Commit: "feat: M3 git backend + tree-sitter + Python convention extraction"
+  - **Verification**: Conventions extracted from Python fixture repo match expected claims with >=80% precision. `get_conventions` returns scoped conventions with confidence and evidence. `rkp preview` includes extracted conventions.
   - **AC coverage**: AC-4 (get_conventions), AC-12 (incremental via git blob OID comparison), partial AC-2 (source authority + confidence on claims)
 
 ---
