@@ -1,12 +1,55 @@
 {
   "description": "Expected claims from CI fixture",
-  "expected_command_count_min": 5,
-  "expected_ci_evidenced_commands": ["pytest", "ruff check", "pyright"],
-  "expected_prerequisites": {
-    "runtimes": ["Python >=3.12", "node >=18"],
-    "services": ["postgres:15", "redis:7-alpine"],
-    "env_vars": ["CI", "APP_ENV", "DATABASE_URL"]
-  },
-  "expected_profile_count_min": 1,
-  "expected_source_authorities": ["executable-config", "ci-observed"]
+  "claims": [
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "^pytest$",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "ruff check",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "^pyright$",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "make test",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "make lint",
+      "required": true
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "Python >=3\\.12",
+      "required": true
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "node >=18",
+      "required": true
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "postgres",
+      "required": false
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "redis",
+      "required": false
+    },
+    {
+      "claim_type": "conflict",
+      "content_pattern": "version conflict",
+      "required": false
+    }
+  ]
 }

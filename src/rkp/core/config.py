@@ -69,4 +69,5 @@ class RkpConfig(BaseSettings):
         "__pycache__",
         ".git",
     )
+    trace_enabled: bool = True
     source_allowlist: SourceAllowlist = SourceAllowlist()

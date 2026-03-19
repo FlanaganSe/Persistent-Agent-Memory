@@ -1,0 +1,20 @@
+{
+  "description": "Pre-populated artifact records for drift detection testing",
+  "expected_drift_count": 1,
+  "artifacts": [
+    {
+      "path": "AGENTS.md",
+      "artifact_type": "instruction-file",
+      "target_host": "agents-md",
+      "expected_hash": "this-hash-will-not-match-because-file-was-edited",
+      "ownership": "managed-by-rkp"
+    },
+    {
+      "path": "CLAUDE.md",
+      "artifact_type": "instruction-file",
+      "target_host": "claude",
+      "expected_hash": "cf75eaae5e7307ce91a206680c53b8903cca05b4d846828510d62c50618de8f9",
+      "ownership": "managed-by-rkp"
+    }
+  ]
+}

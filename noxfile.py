@@ -28,6 +28,22 @@ def test(session: nox.Session) -> None:
 
 
 @nox.session(python="3.12")
+def quality(session: nox.Session) -> None:
+    """Run the full quality harness."""
+    session.install(".[dev]")
+    session.run(
+        "python",
+        "-m",
+        "rkp.quality",
+        "--fixtures",
+        "tests/fixtures/",
+        "--report",
+        "quality-report.json",
+        "--skip-performance",
+    )
+
+
+@nox.session(python="3.12")
 def ci(session: nox.Session) -> None:
     """Run all CI checks."""
     session.notify("lint")

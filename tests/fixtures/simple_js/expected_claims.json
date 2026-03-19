@@ -1,7 +1,39 @@
 {
   "description": "Expected claims from simple JS/TS fixture",
-  "expected_command_count_min": 4,
-  "expected_command_names": ["test", "lint", "build", "format"],
-  "expected_convention_types": ["naming", "test-framework", "test-placement"],
-  "expected_source_authority": "executable-config"
+  "claims": [
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "^jest$",
+      "source_authority": "executable-config",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "eslint",
+      "source_authority": "executable-config",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "^tsc$",
+      "source_authority": "executable-config",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "prettier",
+      "source_authority": "executable-config",
+      "required": false
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "node",
+      "required": false
+    },
+    {
+      "claim_type": "always-on-rule",
+      "content_pattern": "camelCase",
+      "required": false
+    }
+  ]
 }

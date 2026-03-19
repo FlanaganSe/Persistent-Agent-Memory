@@ -95,6 +95,7 @@ from rkp.cli.commands.import_ import import_files  # noqa: E402
 from rkp.cli.commands.init import init  # noqa: E402
 from rkp.cli.commands.preview import preview  # noqa: E402
 from rkp.cli.commands.purge import purge  # noqa: E402
+from rkp.cli.commands.quality import quality  # noqa: E402
 from rkp.cli.commands.review import review  # noqa: E402
 from rkp.cli.commands.serve import serve  # noqa: E402
 from rkp.cli.commands.status import status  # noqa: E402
@@ -108,6 +109,7 @@ app.command()(review)
 app.command(name="apply")(apply)
 app.command()(purge)
 app.command(name="import")(import_files)
+app.command()(quality)
 
 
 def main() -> None:

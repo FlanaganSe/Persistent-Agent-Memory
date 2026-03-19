@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,6 +28,7 @@ from rkp.server.tools import (
     get_validated_commands,
     refresh_index,
 )
+from rkp.server.trace import TraceLogger, create_trace_logger
 from rkp.store.database import open_database, run_migrations
 
 logger = structlog.get_logger()
@@ -45,12 +47,17 @@ async def app_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db = open_database(db_path, check_same_thread=False)
     run_migrations(db)
+    trace_logger = create_trace_logger(
+        config.repo_root or Path(),
+        enabled=config.trace_enabled,
+    )
     logger.info("MCP server database ready", db_path=str(db_path))
     try:
         yield {
             "db": db,
             "config": config,
             "repo_root": config.repo_root or Path(),
+            "trace_logger": trace_logger,
         }
     finally:
         db.close()
@@ -77,6 +84,10 @@ def _ctx_repo_root(ctx: Context) -> Path | None:
     return ctx.lifespan_context.get("repo_root")
 
 
+def _ctx_trace_logger(ctx: Context) -> TraceLogger | None:
+    return ctx.lifespan_context.get("trace_logger")
+
+
 def _json(resp: Any) -> str:
     """Serialize a ToolResponse to JSON, applying response filtering."""
     raw: dict[str, Any] = cast(dict[str, Any], resp.to_dict())
@@ -86,6 +97,43 @@ def _json(resp: Any) -> str:
         _, updated_warnings = filter_response(cast(dict[str, Any], data), existing_warnings)
         raw["warnings"] = updated_warnings
     return json.dumps(raw, indent=2)
+
+
+def _traced(
+    ctx: Context,
+    tool_name: str,
+    arguments: dict[str, object],
+    resp: Any,
+    duration_ms: float,
+) -> None:
+    """Log a trace entry if trace capture is enabled. Never raises."""
+    try:
+        trace = _ctx_trace_logger(ctx)
+        if trace is None:
+            return
+        raw = resp.to_dict() if hasattr(resp, "to_dict") else {}
+        data = raw.get("data", {})
+        claim_count = 0
+        if isinstance(data, dict):
+            items = data.get("items")
+            if isinstance(items, list):
+                claim_count = len(items)
+        # Estimate size without full serialization to avoid errors on non-serializable types
+        try:
+            response_str = json.dumps(raw)
+            size_bytes = len(response_str.encode("utf-8"))
+        except (TypeError, ValueError):
+            size_bytes = 0
+        trace.log_call(
+            tool_name=tool_name,
+            arguments=arguments,
+            response_status=str(raw.get("status", "ok")),
+            response_claim_count=claim_count,
+            response_size_bytes=size_bytes,
+            duration_ms=duration_ms,
+        )
+    except Exception:
+        logger.debug("Trace capture failed", tool_name=tool_name, exc_info=True)
 
 
 # -- paginated / detail-level tools --
@@ -99,16 +147,23 @@ def _h_get_validated_commands(
     detail_level: str = "normal",
 ) -> str:
     """Get validated build/test/lint commands with evidence and risk classification."""
-    return _json(
-        get_validated_commands(
-            _ctx_db(ctx),
-            scope=scope,
-            limit=limit,
-            cursor=cursor,
-            detail_level=detail_level,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_validated_commands(
+        _ctx_db(ctx),
+        scope=scope,
+        limit=limit,
+        cursor=cursor,
+        detail_level=detail_level,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_validated_commands",
+        {"scope": scope, "limit": limit},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_get_conventions(
@@ -121,18 +176,25 @@ def _h_get_conventions(
     detail_level: str = "normal",
 ) -> str:
     """Get conventions for a path or symbol with source authority and confidence."""
-    return _json(
-        get_conventions(
-            _ctx_db(ctx),
-            path_or_symbol=path_or_symbol,
-            include_evidence=include_evidence,
-            task_context=task_context,
-            limit=limit,
-            cursor=cursor,
-            detail_level=detail_level,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_conventions(
+        _ctx_db(ctx),
+        path_or_symbol=path_or_symbol,
+        include_evidence=include_evidence,
+        task_context=task_context,
+        limit=limit,
+        cursor=cursor,
+        detail_level=detail_level,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_conventions",
+        {"path_or_symbol": path_or_symbol},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_get_conflicts(
@@ -143,16 +205,23 @@ def _h_get_conflicts(
     detail_level: str = "normal",
 ) -> str:
     """Get conflict claims where declared and inferred knowledge disagree."""
-    return _json(
-        get_conflicts(
-            _ctx_db(ctx),
-            path_or_scope=path_or_scope,
-            limit=limit,
-            cursor=cursor,
-            detail_level=detail_level,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_conflicts(
+        _ctx_db(ctx),
+        path_or_scope=path_or_scope,
+        limit=limit,
+        cursor=cursor,
+        detail_level=detail_level,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_conflicts",
+        {"path_or_scope": path_or_scope},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_get_guardrails(
@@ -164,17 +233,24 @@ def _h_get_guardrails(
     detail_level: str = "normal",
 ) -> str:
     """Get security guardrails and permission restrictions."""
-    return _json(
-        get_guardrails(
-            _ctx_db(ctx),
-            path_or_scope=path_or_scope,
-            host=host,
-            limit=limit,
-            cursor=cursor,
-            detail_level=detail_level,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_guardrails(
+        _ctx_db(ctx),
+        path_or_scope=path_or_scope,
+        host=host,
+        limit=limit,
+        cursor=cursor,
+        detail_level=detail_level,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_guardrails",
+        {"path_or_scope": path_or_scope, "host": host},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 # -- non-paginated tools --
@@ -185,13 +261,20 @@ def _h_get_prerequisites(
     command_or_scope: str | None = None,
 ) -> str:
     """Get environment prerequisites and profiles for a command or scope."""
-    return _json(
-        get_prerequisites(
-            _ctx_db(ctx),
-            command_or_scope=command_or_scope,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_prerequisites(
+        _ctx_db(ctx),
+        command_or_scope=command_or_scope,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_prerequisites",
+        {"command_or_scope": command_or_scope},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_get_module_info(
@@ -199,13 +282,20 @@ def _h_get_module_info(
     path_or_symbol: str,
 ) -> str:
     """Get module boundary info, dependencies, dependents, and test locations."""
-    return _json(
-        get_module_info(
-            _ctx_db(ctx),
-            path_or_symbol=path_or_symbol,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_module_info(
+        _ctx_db(ctx),
+        path_or_symbol=path_or_symbol,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_module_info",
+        {"path_or_symbol": path_or_symbol},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_get_instruction_preview(
@@ -213,13 +303,20 @@ def _h_get_instruction_preview(
     consumer: str = "codex",
 ) -> str:
     """Preview projected instruction artifacts for a target consumer."""
-    return _json(
-        get_instruction_preview(
-            _ctx_db(ctx),
-            consumer=consumer,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_instruction_preview(
+        _ctx_db(ctx),
+        consumer=consumer,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_instruction_preview",
+        {"consumer": consumer},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 # -- new M7 tools --
@@ -227,12 +324,18 @@ def _h_get_instruction_preview(
 
 def _h_get_repo_overview(ctx: Context) -> str:
     """High-level summary of the repository's structure and RKP's understanding."""
-    return _json(get_repo_overview(_ctx_db(ctx)))
+    start = time.perf_counter()
+    resp = get_repo_overview(_ctx_db(ctx))
+    _traced(ctx, "get_repo_overview", {}, resp, (time.perf_counter() - start) * 1000)
+    return _json(resp)
 
 
 def _h_get_claim(ctx: Context, claim_id: str) -> str:
     """Full detail on a single claim: evidence chain, review history, freshness."""
-    return _json(get_claim(_ctx_db(ctx), claim_id=claim_id))
+    start = time.perf_counter()
+    resp = get_claim(_ctx_db(ctx), claim_id=claim_id)
+    _traced(ctx, "get_claim", {"claim_id": claim_id}, resp, (time.perf_counter() - start) * 1000)
+    return _json(resp)
 
 
 def _h_get_preflight_context(
@@ -243,16 +346,23 @@ def _h_get_preflight_context(
     detail_level: str = "terse",
 ) -> str:
     """Get the minimum actionable bundle an agent needs before starting work."""
-    return _json(
-        get_preflight_context(
-            _ctx_db(ctx),
-            path_or_symbol=path_or_symbol,
-            task_context=task_context,
-            host=host,
-            detail_level=detail_level,
-            allowlist=_ctx_config(ctx).source_allowlist,
-        )
+    start = time.perf_counter()
+    resp = get_preflight_context(
+        _ctx_db(ctx),
+        path_or_symbol=path_or_symbol,
+        task_context=task_context,
+        host=host,
+        detail_level=detail_level,
+        allowlist=_ctx_config(ctx).source_allowlist,
     )
+    _traced(
+        ctx,
+        "get_preflight_context",
+        {"path_or_symbol": path_or_symbol},
+        resp,
+        (time.perf_counter() - start) * 1000,
+    )
+    return _json(resp)
 
 
 def _h_refresh_index(
@@ -260,13 +370,14 @@ def _h_refresh_index(
     paths: list[str] | None = None,
 ) -> str:
     """Trigger incremental re-indexing after file changes."""
-    return _json(
-        refresh_index(
-            _ctx_db(ctx),
-            repo_root=_ctx_repo_root(ctx),
-            paths=paths,
-        )
+    start = time.perf_counter()
+    resp = refresh_index(
+        _ctx_db(ctx),
+        repo_root=_ctx_repo_root(ctx),
+        paths=paths,
     )
+    _traced(ctx, "refresh_index", {"paths": paths}, resp, (time.perf_counter() - start) * 1000)
+    return _json(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -339,10 +450,14 @@ def create_server(
 
         @asynccontextmanager
         async def test_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
+            cfg = config or RkpConfig()
             yield {
                 "db": db,
-                "config": config or RkpConfig(),
+                "config": cfg,
                 "repo_root": repo_root or Path(),
+                "trace_logger": create_trace_logger(
+                    repo_root or Path(), enabled=cfg.trace_enabled
+                ),
             }
 
         test_server: FastMCP[Any] = FastMCP(

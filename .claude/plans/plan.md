@@ -352,7 +352,13 @@ _Goal: Complete the human governance loop, harden security before import, implem
 
 _Goal: Formal quality measurement, adapter maturity promotion, remaining features, and release._
 
-- [ ] **M13: Quality harness + trace capture + adapter maturity promotion**
+- [x] **M13: Quality harness + trace capture + adapter maturity promotion**
+  - [x] Step 1 — Quality harness types + fixture evaluation + conformance + leakage + promotion (`src/rkp/quality/`) → verify: `python -c "from rkp.quality.harness import run_quality_harness"`
+  - [x] Step 2 — Trace capture (`src/rkp/server/trace.py`) + config field + MCP integration → verify: `python -c "from rkp.server.trace import TraceLogger"`
+  - [x] Step 3 — Enhance fixture repos: standardized expected_claims.json, create with_drift fixture → verify: `ls tests/fixtures/*/expected_claims.json`
+  - [x] Step 4 — Performance benchmark module (`src/rkp/quality/benchmark.py`) + nox session + CLI command → verify: `python -c "from rkp.quality.benchmark import generate_benchmark_repo"`
+  - [x] Step 5 — Unit tests (harness framework, trace capture) + integration tests (conformance, leakage, drift, import fidelity, performance) → verify: `python -m pytest tests/unit/test_quality_harness.py tests/unit/test_trace_capture.py -x`
+  Commit: "feat: M13 quality harness + trace capture + adapter maturity promotion"
   - `src/rkp/quality/harness.py` — quality harness runner
   - `src/rkp/quality/fixtures.py` — fixture repo evaluation: load expected_claims.json, measure precision/recall
   - `src/rkp/quality/conformance.py` — export conformance: automated round-trip validation per adapter

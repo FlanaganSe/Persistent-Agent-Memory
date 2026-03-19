@@ -1,21 +1,62 @@
 {
-  "description": "Expected claims from simple_python fixture",
+  "description": "Expected claims from simple_python fixture — comprehensive ground truth",
   "claims": [
     {
-      "content": "myapp.main:run",
       "claim_type": "validated-command",
+      "content_pattern": "^myapp\\.main:run$",
       "source_authority": "executable-config",
-      "risk_class": "build",
-      "confidence": 1.0,
-      "evidence": ["pyproject.toml"]
+      "required": true
     },
     {
-      "content": "pytest",
       "claim_type": "validated-command",
+      "content_pattern": "^pytest$",
       "source_authority": "executable-config",
-      "risk_class": "test-execution",
-      "confidence": 0.9,
-      "evidence": ["pyproject.toml"]
+      "required": true
+    },
+    {
+      "claim_type": "environment-prerequisite",
+      "content_pattern": "Python >=3\\.12",
+      "required": true
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "pip install",
+      "required": false
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "ruff check",
+      "required": false
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "ruff format",
+      "required": false
+    },
+    {
+      "claim_type": "validated-command",
+      "content_pattern": "pytest tests/",
+      "required": false
+    },
+    {
+      "claim_type": "always-on-rule",
+      "content_pattern": "type annotation",
+      "required": false
+    },
+    {
+      "claim_type": "always-on-rule",
+      "content_pattern": "docstrings",
+      "required": false
+    },
+    {
+      "claim_type": "always-on-rule",
+      "content_pattern": "tests/",
+      "required": false
+    },
+    {
+      "claim_type": "module-boundary",
+      "content_pattern": "myapp",
+      "required": false
     }
   ]
 }
