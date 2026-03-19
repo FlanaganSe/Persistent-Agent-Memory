@@ -2,7 +2,7 @@
 
 import nox
 
-nox.options.sessions = ["lint", "typecheck", "test"]
+nox.options.sessions = ["lint", "typecheck", "test", "docs"]
 
 
 @nox.session(python="3.12")
@@ -56,3 +56,5 @@ def ci(session: nox.Session) -> None:
     session.notify("lint")
     session.notify("typecheck")
     session.notify("test")
+    session.notify("quality")
+    session.notify("docs")

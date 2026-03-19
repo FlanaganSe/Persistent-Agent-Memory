@@ -81,10 +81,15 @@ def discover_instruction_files(repo_root: Path) -> list[tuple[str, Path]]:
             if p.is_file()
         )
 
-    # Copilot: copilot-setup-steps.yml (lives at .github/, not .github/workflows/)
-    setup_steps = repo_root / ".github" / "copilot-setup-steps.yml"
-    if setup_steps.is_file():
-        found.append(("copilot-setup-steps", setup_steps))
+    # Copilot: prefer the projected workflow path, but keep legacy import compatibility.
+    setup_steps_candidates = (
+        repo_root / ".github" / "workflows" / "copilot-setup-steps.yml",
+        repo_root / ".github" / "copilot-setup-steps.yml",
+    )
+    for setup_steps in setup_steps_candidates:
+        if setup_steps.is_file():
+            found.append(("copilot-setup-steps", setup_steps))
+            break
 
     # Cursor: .cursor/rules or .cursorrules
     cursor_rules_dir = repo_root / ".cursor" / "rules"

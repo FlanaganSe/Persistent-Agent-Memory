@@ -4,11 +4,14 @@ Intelligence layer for coding agents: architecture recovery, change-impact graph
 
 ## Commands
 ```bash
-# TBD — stack not yet chosen. Fill in when tooling is decided.
-# Example placeholders:
-# make dev             # Local dev
-# make test            # Unit tests
-# make ci              # Full CI: typecheck, lint, test
+uv pip install ".[dev]"       # Install dev dependencies
+uv run nox -s lint            # Ruff lint + format check
+uv run nox -s typecheck       # Pyright strict
+uv run nox -s test            # Unit, integration, property, snapshot tests
+uv run nox -s quality         # Adapter conformance, leakage, drift harness
+uv run nox -s docs            # MkDocs build
+uv run nox -s ci              # All of the above
+uv build                      # Build wheel
 ```
 
 ## Rules
@@ -18,8 +21,6 @@ Intelligence layer for coding agents: architecture recovery, change-impact graph
 @.claude/rules/stack.md
 
 ## System
-<!-- Uncomment when SYSTEM.md has real content: -->
-<!-- @docs/SYSTEM.md -->
 
 ## Decisions
 See `docs/decisions.md` — append-only ADR log. Read during planning, not loaded every session.

@@ -130,3 +130,23 @@ class TestExtractDocsEvidence:
         assert "npm install" in commands
         # "npm test" starts with a valid prefix
         assert any("npm" in cmd for cmd in commands)
+
+    def test_inline_comments_are_stripped_and_deduplicated(self, tmp_path):
+        """Trailing inline comments do not create duplicate commands."""
+        readme = tmp_path / "README.md"
+        readme.write_text("## Testing\n\n```bash\nnox -s test  # full suite\nnox -s test\n```\n")
+
+        result = extract_docs_evidence(tmp_path)
+        commands = [c.content for c in result.commands]
+        assert commands == ["nox -s test"]
+
+    def test_excluded_docs_directory_is_skipped(self, tmp_path):
+        """Repo config exclusions can suppress docs/ during extraction."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "setup.md").write_text("## Setup\n\n```bash\nmake dev\n```\n", encoding="utf-8")
+
+        result = extract_docs_evidence(tmp_path, excluded_dirs=("docs",))
+
+        assert result.files_scanned == 0
+        assert result.commands == ()

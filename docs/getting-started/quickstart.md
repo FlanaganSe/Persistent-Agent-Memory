@@ -1,65 +1,62 @@
 # Quick Start
 
-This guide walks through using RKP on a repository for the first time.
+This guide is intentionally split into the two real starting points: a repo that has no existing agent instructions yet, and a repo that already has them.
 
-## 1. Initialize
+## Track A: Fresh RKP adoption
+
+### 1. Check the environment
 
 ```bash
 cd your-repo
+rkp doctor
+```
+
+### 2. Initialize the repo
+
+```bash
 rkp init
 ```
 
-RKP scans your repository and extracts claims from:
+This creates the checked-in `.rkp/config.yaml`, the `.rkp/overrides/` directory, and the local SQLite index under `.rkp/local/`.
 
-- Config files (pyproject.toml, package.json, Makefile, Dockerfile)
-- CI workflows (GitHub Actions)
-- Source code (Python, JS/TS via tree-sitter)
-- Documentation (README, docs/)
-- Version files (.python-version, .nvmrc, .tool-versions)
+### 3. Inspect what was extracted
 
-Output shows how many files were parsed and claims created.
+```bash
+rkp status
+rkp preview --host codex
+```
 
-## 2. Review
+Preview includes unreviewed claims, but intentionally hides suppressed and tombstoned ones.
+
+### 4. Govern the claims
+
+Interactive:
 
 ```bash
 rkp review
 ```
 
-Interactive review: approve, edit, suppress, or skip each claim. Your decisions are saved to `.rkp/overrides/` (version-controlled).
-
-Options:
-
-- `--approve-all` — batch approve all unreviewed claims
-- `--type validated-command` — filter by claim type
-- `--scope src/` — filter by file scope
-- `--state unreviewed` — filter by review state
-
-## 3. Preview
+Fast demo path:
 
 ```bash
-rkp preview --host claude
-rkp preview --host codex
-rkp preview --host copilot
+rkp review --approve-all --threshold 0.95
 ```
 
-See what would be generated without writing files. Preview shows all claims; apply only writes approved ones.
-
-## 4. Apply
+### 5. Write reviewed artifacts
 
 ```bash
-rkp apply --host claude
-rkp apply --host codex
+rkp apply --host claude --yes
 ```
 
-Writes instruction files to disk. Only approved/edited claims are projected. Shows a diff preview before writing.
+`apply` only writes claims in `approved` or `edited` review state.
 
-## 5. Serve
+### 6. Serve the same knowledge over MCP
 
 ```bash
 rkp serve
 ```
 
-Starts the MCP server on stdio transport. Configure your agent to connect:
+Example MCP client config:
 
 ```json
 {
@@ -72,35 +69,39 @@ Starts the MCP server on stdio transport. Configure your agent to connect:
 }
 ```
 
-Agents can then call tools like `get_conventions`, `get_validated_commands`, `get_preflight_context`.
+## Track B: Repo already has instruction files
 
-## Importing Existing Files
-
-Already have instruction files? Import them:
+If the repo already has `AGENTS.md`, `CLAUDE.md`, Copilot instructions, or Cursor rules, still start with `init`:
 
 ```bash
+rkp init
 rkp import
-rkp review        # Review imported + extracted claims together
-rkp apply --host codex  # Re-project with unified governance
+rkp status
 ```
 
-## Checking Status
+Imported claims enter as `declared-imported-unreviewed`, which is intentionally lower authority than executable config and CI evidence until a human reviews them.
+
+Then continue with the same governance flow:
 
 ```bash
-rkp status        # Index health, pending reviews, stale claims, drift
-rkp refresh       # Re-check evidence, flag stale claims
-rkp audit         # Query the governance audit trail
+rkp review
+rkp apply --host codex --yes
 ```
 
-## Repo Structure After Init
+## Common follow-up commands
 
+```bash
+rkp refresh
+rkp audit
+rkp preview --host copilot
 ```
+
+## Repo layout after `init`
+
+```text
 .rkp/
-├── config.yaml          # RKP settings (checked in)
-├── overrides/           # Human governance decisions (checked in)
-│   └── claim-abc123.yaml
-└── local/               # Gitignored, regenerable
-    └── rkp.db           # SQLite index
+├── config.yaml          # checked in
+├── overrides/           # checked in
+└── local/               # gitignored
+    └── rkp.db
 ```
-
-The `.rkp/overrides/` directory is your team's durable record. The database is a cache — delete it and `rkp init` rebuilds everything.

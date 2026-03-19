@@ -1,5 +1,5 @@
 site_name: Repo Knowledge Plane
-site_description: Portable, verified repo context for every coding agent
+site_description: Extract once, govern centrally, project everywhere for AI coding agents
 repo_url: https://github.com/seanflanagan/repo-knowledge-plane
 
 theme:
@@ -18,6 +18,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+    - Demo: demo.md
   - Concepts:
     - Claim Model: claim-model.md
     - Host Adapters: host-adapters.md
@@ -26,11 +27,18 @@ nav:
     - CLI: reference/cli.md
     - MCP Tools: reference/mcp-tools.md
     - Configuration: reference/configuration.md
+    - Distribution: distribution.md
   - Development:
     - Architecture: architecture.md
-    - Decisions: decisions.md
+    - Development Guide: development.md
+    - Testing: testing.md
     - Quality Harness: quality-harness.md
     - Contributing: contributing.md
+    - Decisions: decisions.md
+  - Background:
+    - Historical PRD: prd.md
+    - Historical Build Research: research-build.md
+    - Historical Product Research: research-product.md
 
 markdown_extensions:
   - tables

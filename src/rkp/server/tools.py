@@ -9,13 +9,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections import Counter
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-from rkp.core.config import SourceAllowlist
+from rkp.core.config import RkpConfig, SourceAllowlist
 from rkp.core.models import Claim
-from rkp.core.types import ClaimType, Sensitivity, source_authority_precedence
+from rkp.core.types import ClaimType, ReviewState, Sensitivity, source_authority_precedence
 from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter, is_enforceable_restriction
@@ -192,6 +193,12 @@ def exclude_local_only(claims: list[Claim]) -> list[Claim]:
     return included
 
 
+def exclude_hidden_review_states(claims: list[Claim]) -> list[Claim]:
+    """Exclude claims intentionally hidden by governance from previews and reads."""
+    hidden_states = {ReviewState.SUPPRESSED, ReviewState.TOMBSTONED}
+    return [claim for claim in claims if claim.review_state not in hidden_states]
+
+
 def enforce_allowlist(
     claims: list[Claim],
     allowlist: SourceAllowlist | None,
@@ -228,6 +235,17 @@ def _paginated_data(
     }
 
 
+def prepare_claims_for_output(
+    claims: list[Claim],
+    *,
+    allowlist: SourceAllowlist | None = None,
+) -> list[Claim]:
+    """Apply governance, trust-boundary, and sensitivity filtering for outputs."""
+    claims = exclude_hidden_review_states(claims)
+    claims = enforce_allowlist(claims, allowlist)
+    return exclude_local_only(claims)
+
+
 # ---------------------------------------------------------------------------
 # Existing tools — updated with pagination + detail levels
 # ---------------------------------------------------------------------------
@@ -256,8 +274,7 @@ def get_validated_commands(
     )
     if scope != "**":
         claims = [c for c in claims if c.scope == scope or c.scope == "**"]
-    claims = enforce_allowlist(claims, allowlist)
-    claims = exclude_local_only(claims)
+    claims = prepare_claims_for_output(claims, allowlist=allowlist)
 
     page, nc, hm, total = paginate_claims(claims, limit=limit, cursor=cursor)
 
@@ -330,8 +347,7 @@ def get_conventions(
         ]
 
     all_conventions.sort(key=lambda c: (source_authority_precedence(c.source_authority), c.id))
-    all_conventions = enforce_allowlist(all_conventions, allowlist)
-    all_conventions = exclude_local_only(all_conventions)
+    all_conventions = prepare_claims_for_output(all_conventions, allowlist=allowlist)
 
     page, nc, hm, total = paginate_claims(
         all_conventions, limit=limit, cursor=cursor, pre_sorted=True
@@ -373,8 +389,7 @@ def get_prerequisites(
         prereq_claims = [
             c for c in prereq_claims if c.scope == command_or_scope or c.scope == "**"
         ]
-    prereq_claims = enforce_allowlist(prereq_claims, allowlist)
-    prereq_claims = exclude_local_only(prereq_claims)
+    prereq_claims = prepare_claims_for_output(prereq_claims, allowlist=allowlist)
 
     profiles = _get_profiles(db, repo_id=repo_id)
 
@@ -465,16 +480,14 @@ def get_module_info(
         claim_type=ClaimType.MODULE_BOUNDARY,
         repo_id=repo_id if repo_id else None,
     )
-    boundary_claims = enforce_allowlist(boundary_claims, allowlist)
-    boundary_claims = exclude_local_only(boundary_claims)
+    boundary_claims = prepare_claims_for_output(boundary_claims, allowlist=allowlist)
     module_claims = [c for c in boundary_claims if c.scope == module or module in c.content]
 
     scoped_rules = store.list_claims(
         claim_type=ClaimType.SCOPED_RULE,
         repo_id=repo_id if repo_id else None,
     )
-    scoped_rules = enforce_allowlist(scoped_rules, allowlist)
-    scoped_rules = exclude_local_only(scoped_rules)
+    scoped_rules = prepare_claims_for_output(scoped_rules, allowlist=allowlist)
     applicable_rules = [
         {"id": r.id, "content": r.content, "confidence": r.confidence}
         for r in scoped_rules
@@ -529,8 +542,7 @@ def get_conflicts(
         conflict_claims = [
             c for c in conflict_claims if c.scope == path_or_scope or c.scope == "**"
         ]
-    conflict_claims = enforce_allowlist(conflict_claims, allowlist)
-    conflict_claims = exclude_local_only(conflict_claims)
+    conflict_claims = prepare_claims_for_output(conflict_claims, allowlist=allowlist)
 
     page, nc, hm, total = paginate_claims(conflict_claims, limit=limit, cursor=cursor)
 
@@ -576,8 +588,7 @@ def get_guardrails(
         guardrail_claims = [
             c for c in guardrail_claims if c.scope == path_or_scope or c.scope == "**"
         ]
-    guardrail_claims = enforce_allowlist(guardrail_claims, allowlist)
-    guardrail_claims = exclude_local_only(guardrail_claims)
+    guardrail_claims = prepare_claims_for_output(guardrail_claims, allowlist=allowlist)
 
     page, nc, hm, total = paginate_claims(guardrail_claims, limit=limit, cursor=cursor)
 
@@ -635,8 +646,7 @@ def get_instruction_preview(
 
     store = SqliteClaimStore(db)
     claims = store.list_claims(repo_id=repo_id if repo_id else None)
-    claims = enforce_allowlist(claims, allowlist)
-    claims = exclude_local_only(claims)
+    claims = prepare_claims_for_output(claims, allowlist=allowlist)
 
     adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter | CursorAdapter | WindsurfAdapter
     if consumer in ("codex", "agents-md"):
@@ -702,6 +712,7 @@ def get_agents_md_claim_ids(claims: list[Claim]) -> frozenset[str]:
 def get_repo_overview(
     db: sqlite3.Connection,
     *,
+    allowlist: SourceAllowlist | None = None,
     repo_id: str = "",
     branch: str = "main",
     repo_head: str = "",
@@ -738,32 +749,23 @@ def get_repo_overview(
             index_version=idx,
         )
 
-    # Claim counts by type
-    type_rows = db.execute(
-        "SELECT claim_type, COUNT(*) as cnt FROM claims WHERE 1=1"
-        + (" AND repo_id = ?" if repo_id else "")
-        + " GROUP BY claim_type",
-        (repo_id,) if repo_id else (),
-    ).fetchall()
-    by_type = {str(r["claim_type"]): int(r["cnt"]) for r in type_rows}
+    claims = store.list_claims(repo_id=repo_id if repo_id else None)
+    visible_claims = prepare_claims_for_output(claims, allowlist=allowlist)
 
-    # Claim counts by review state
-    state_rows = db.execute(
-        "SELECT review_state, COUNT(*) as cnt FROM claims WHERE 1=1"
-        + (" AND repo_id = ?" if repo_id else "")
-        + " GROUP BY review_state",
-        (repo_id,) if repo_id else (),
-    ).fetchall()
-    by_review_state = {str(r["review_state"]): int(r["cnt"]) for r in state_rows}
+    by_type = dict(Counter(claim.claim_type.value for claim in visible_claims))
+    by_review_state = dict(Counter(claim.review_state.value for claim in visible_claims))
+    total_claims = len(visible_claims)
+    conflict_count = by_type.get(ClaimType.CONFLICT.value, 0)
 
-    total_claims = sum(by_type.values())
-    conflict_count = by_type.get("conflict", 0)
-
-    # Detect languages from evidence file extensions
-    evidence_rows = db.execute("SELECT DISTINCT file_path FROM claim_evidence").fetchall()
+    # Detect languages from claim evidence rather than the optional claim_evidence table.
+    evidence_paths = {
+        evidence_path
+        for claim in visible_claims
+        for evidence_path in claim.evidence
+        if evidence_path
+    }
     extensions: set[str] = set()
-    for row in evidence_rows:
-        fp = str(row["file_path"])
+    for fp in evidence_paths:
         if "." in fp:
             extensions.add(fp[fp.rfind(".") :].lower())
 
@@ -786,11 +788,7 @@ def get_repo_overview(
         modules = []
 
     # Build/test entrypoints from validated commands
-    cmd_claims = store.list_claims(
-        claim_type=ClaimType.VALIDATED_COMMAND,
-        repo_id=repo_id if repo_id else None,
-    )
-    cmd_claims = exclude_local_only(cmd_claims)
+    cmd_claims = [c for c in visible_claims if c.claim_type == ClaimType.VALIDATED_COMMAND]
     entrypoints = [c.content for c in cmd_claims]
 
     return make_ok_response(
@@ -804,7 +802,7 @@ def get_repo_overview(
                 "supported_languages": supported_langs,
                 "unsupported_detected": [],
                 "file_count": 0,
-                "indexed_file_count": len(evidence_rows),
+                "indexed_file_count": len(evidence_paths),
                 "excluded_count": 0,
                 "exclusion_reasons": {},
             },
@@ -825,6 +823,7 @@ def get_claim(
     db: sqlite3.Connection,
     *,
     claim_id: str,
+    allowlist: SourceAllowlist | None = None,
     repo_head: str = "",
     branch: str = "main",
 ) -> ToolResponse:
@@ -835,6 +834,16 @@ def get_claim(
 
     if claim is None:
         return make_error_response(f"Claim not found: {claim_id}")
+
+    if claim.review_state in {ReviewState.SUPPRESSED, ReviewState.TOMBSTONED}:
+        return make_error_response(
+            f"Claim {claim_id} is hidden by governance and cannot be accessed via MCP"
+        )
+
+    if allowlist is not None and not _passes_allowlist(claim, allowlist):
+        return make_error_response(
+            f"Claim {claim_id} is not accessible under the current allowlist"
+        )
 
     if claim.sensitivity == Sensitivity.LOCAL_ONLY:
         return make_error_response(
@@ -932,8 +941,7 @@ def get_preflight_context(
     rules = [c for c in rules if c.scope == path_or_symbol or c.scope == "**"]
     if task_context is not None:
         rules = [c for c in rules if "all" in c.applicability or task_context in c.applicability]
-    rules = enforce_allowlist(rules, allowlist)
-    rules = exclude_local_only(rules)
+    rules = prepare_claims_for_output(rules, allowlist=allowlist)
     rules.sort(key=lambda c: (source_authority_precedence(c.source_authority), c.id))
 
     # Validated commands for this scope
@@ -942,8 +950,7 @@ def get_preflight_context(
         repo_id=repo_id if repo_id else None,
     )
     commands = [c for c in commands if c.scope == path_or_symbol or c.scope == "**"]
-    commands = enforce_allowlist(commands, allowlist)
-    commands = exclude_local_only(commands)
+    commands = prepare_claims_for_output(commands, allowlist=allowlist)
 
     # Guardrails
     guardrails_raw = store.list_claims(
@@ -951,8 +958,7 @@ def get_preflight_context(
         repo_id=repo_id if repo_id else None,
     )
     guardrails_raw = [c for c in guardrails_raw if c.scope == path_or_symbol or c.scope == "**"]
-    guardrails_raw = enforce_allowlist(guardrails_raw, allowlist)
-    guardrails_raw = exclude_local_only(guardrails_raw)
+    guardrails_raw = prepare_claims_for_output(guardrails_raw, allowlist=allowlist)
 
     guardrail_items: list[dict[str, Any]] = []
     for g in guardrails_raw:
@@ -1006,6 +1012,7 @@ def refresh_index(
     *,
     repo_root: Path | None = None,
     paths: list[str] | None = None,
+    config: RkpConfig | None = None,
     repo_id: str = "",
     branch: str = "main",
     repo_head: str = "",
@@ -1039,6 +1046,7 @@ def refresh_index(
             branch=branch,
             git_backend=git,
             graph=graph,
+            config=config,
         )
         elapsed = time.monotonic() - start
 

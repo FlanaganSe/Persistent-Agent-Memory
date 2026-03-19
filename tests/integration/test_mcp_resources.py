@@ -11,6 +11,7 @@ import pytest
 from fastmcp import Client
 
 from rkp.core.claim_builder import ClaimBuilder
+from rkp.core.config import RkpConfig, SourceAllowlist
 from rkp.core.types import ClaimType, RiskClass, SourceAuthority
 from rkp.server.mcp import create_server
 from rkp.store.claims import SqliteClaimStore
@@ -98,3 +99,20 @@ async def test_resource_modules(populated_db: sqlite3.Connection) -> None:
         text = str(result[0].text) if hasattr(result[0], "text") else str(result[0])
         data = json.loads(text)
         assert isinstance(data, list)
+
+
+@pytest.mark.asyncio
+async def test_resource_conventions_respect_allowlist(populated_db: sqlite3.Connection) -> None:
+    """Resources should enforce the same allowlist boundary as tools."""
+    config = RkpConfig(
+        source_allowlist=SourceAllowlist(
+            trusted_evidence_sources=("executable-config",),
+        )
+    )
+    server = create_server(db=populated_db, config=config)
+    async with Client(server) as client:
+        result = await client.read_resource("rkp://repo/conventions")
+        text = str(result[0].text) if hasattr(result[0], "text") else str(result[0])
+        data = json.loads(text)
+
+        assert data["items"] == []

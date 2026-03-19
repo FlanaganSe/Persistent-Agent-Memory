@@ -76,7 +76,10 @@ def status(
         # Support envelope
         from rkp.cli.commands.init import detect_languages
 
-        supported_langs, unsupported_langs = detect_languages(repo_path)
+        supported_langs, unsupported_langs = detect_languages(
+            repo_path,
+            excluded_dirs=state.config.excluded_dirs,
+        )
 
         # Adapter state
         adapters = {

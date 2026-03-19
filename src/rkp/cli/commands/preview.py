@@ -14,6 +14,7 @@ from rich.syntax import Syntax
 from rkp.cli.app import AppState
 from rkp.cli.ui.output import console as err_console
 from rkp.cli.ui.output import print_error
+from rkp.core.types import ReviewState
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.adapters.copilot import CopilotAdapter
@@ -57,13 +58,32 @@ def preview(
                 claim_store,
                 repo_id=repo_id,
                 git_backend=state.ensure_git(),
+                config=state.config,
             )
+            git_backend = state.ensure_git()
+            if git_backend is not None:
+                from rkp.store.metadata import IndexMetadata, SqliteMetadataStore
+
+                SqliteMetadataStore(db).save(
+                    IndexMetadata(
+                        last_indexed=SqliteMetadataStore.now_iso(),
+                        repo_head=git_backend.head(),
+                        branch=git_backend.current_branch(),
+                        file_count=summary.files_parsed,
+                        claim_count=summary.claims_created,
+                    )
+                )
             claims = claim_store.list_claims(repo_id=repo_id)
             if state.verbose > 0 and not state.quiet:
                 err_console.print(
                     f"[dim]Extracted {summary.claims_created} claims from "
                     f"{summary.files_parsed} files[/dim]"
                 )
+        claims = [
+            c
+            for c in claims
+            if c.review_state not in {ReviewState.SUPPRESSED, ReviewState.TOMBSTONED}
+        ]
 
         # Select adapter
         adapter: (

@@ -1,119 +1,125 @@
 # CLI Reference
 
-All commands accept these global options:
+All commands support these global options:
 
 | Option | Description |
 |---|---|
-| `--repo PATH` | Repository root path (default: `.`, env: `RKP_REPO`) |
-| `--json` | Output JSON instead of human-readable text |
-| `--verbose` / `-v` | Increase verbosity (repeatable: `-vv` for max) |
-| `--quiet` / `-q` | Suppress non-essential output |
+| `--repo PATH` | Repository root (default `.`) |
+| `--json` | Machine-readable JSON output |
+| `--verbose`, `-v` | More diagnostics on `stderr` |
+| `--quiet`, `-q` | Suppress non-essential human output |
 
-## Commands
+## Core lifecycle
+
+### `rkp doctor`
+
+Validate the current machine and repo prerequisites.
+
+```bash
+rkp doctor
+```
 
 ### `rkp init`
 
-Scan the repository and extract claims into the local database.
+Initialize `.rkp/`, extract claims, and create the local index.
 
 ```bash
 rkp init
 ```
 
-Creates `.rkp/` directory structure, runs extraction pipeline (config parsers, tree-sitter analysis, CI parsing, docs parsing), and stores claims in `.rkp/local/rkp.db`.
-
-### `rkp review`
-
-Interactively review and govern extracted claims.
-
-```bash
-rkp review [OPTIONS]
-```
-
-| Option | Description |
-|---|---|
-| `--approve-all` | Batch-approve high-confidence claims |
-| `--threshold FLOAT` | Confidence threshold for `--approve-all` (default: 0.95) |
-| `--type TYPE` | Filter by claim type (e.g., `validated-command`) |
-| `--scope SCOPE` | Filter by file/directory scope |
-| `--state STATE` | Filter by review state (e.g., `unreviewed`) |
-
-Actions during review: **a**pprove, **e**dit (opens `$EDITOR`), **s**uppress, **t**ombstone, **n**ext (skip).
-
-Decisions are persisted in `.rkp/overrides/` as strictyaml files.
-
-### `rkp preview`
-
-Preview projected instruction artifacts without writing files.
-
-```bash
-rkp preview --host HOST
-```
-
-| Option | Description |
-|---|---|
-| `--host HOST` | Target host: `codex`, `claude`, `copilot`, `cursor`, `windsurf` |
-
-Shows all claims (including unreviewed). Use `rkp apply` to write only approved claims.
-
-### `rkp apply`
-
-Write approved projections to disk.
-
-```bash
-rkp apply --host HOST
-```
-
-| Option | Description |
-|---|---|
-| `--host HOST` | Target host: `codex`, `claude`, `copilot`, `cursor`, `windsurf` |
-| `--dry-run` | Show what would change without writing |
-| `--yes` / `-y` | Skip confirmation prompt |
-
-Only writes claims with `review_state` of `approved` or `edited`. Shows a diff preview before writing. Tracks written files in the artifact store for drift detection.
-
 ### `rkp status`
 
-Show index health, pending reviews, stale claims, and drift.
+Show index health, freshness, review backlog, and managed-file drift.
 
 ```bash
 rkp status
 ```
 
-Reports: total claims by type and review state, stale claims, drift-detected artifacts, freshness information.
+`status` expects the repo to have been initialized first.
 
-### `rkp refresh`
+### `rkp review`
 
-Re-analyze the repo and flag stale claims.
+Review claims interactively or in batches.
 
 ```bash
-rkp refresh [OPTIONS]
+rkp review [OPTIONS]
 ```
+
+Common options:
 
 | Option | Description |
 |---|---|
-| `--dry-run` | Show what changed without updating the database |
+| `--approve-all` | Batch-approve claims above a threshold |
+| `--threshold FLOAT` | Threshold used by `--approve-all` |
+| `--type TYPE` | Filter by claim type |
+| `--scope SCOPE` | Filter by claim scope |
+| `--state STATE` | Filter by review state |
 
-Compares current repo state against indexed state. Flags claims whose evidence files have changed, been deleted, or where the branch has changed.
+### `rkp preview`
 
-### `rkp import`
-
-Ingest existing instruction files as claims.
+Preview projected artifacts without writing them.
 
 ```bash
-rkp import
+rkp preview --host codex
 ```
 
-Parses existing `AGENTS.md`, `CLAUDE.md`, `copilot-instructions.md`, and `.cursor/rules` files. Imported claims receive `DECLARED_IMPORTED_UNREVIEWED` authority.
+Hosts: `codex`, `agents-md`, `claude`, `copilot`, `cursor`, `windsurf`
+
+Preview includes unreviewed claims but hides suppressed and tombstoned claims.
+
+### `rkp apply`
+
+Write projected artifacts to disk.
+
+```bash
+rkp apply --host claude
+```
+
+Common options:
+
+| Option | Description |
+|---|---|
+| `--host HOST` | Projection target |
+| `--dry-run` | Show changes without writing |
+| `--yes`, `-y` | Skip confirmation |
+
+Only `approved` and `edited` claims are written.
 
 ### `rkp serve`
 
-Start the MCP server on stdio transport.
+Run the MCP server on stdio transport.
 
 ```bash
 rkp serve
 ```
 
-Agents connect by configuring the MCP server command. See [MCP Tools](mcp-tools.md) for available tools.
+## Import, maintenance, and audit
+
+### `rkp import`
+
+Import existing instruction files as governed claims.
+
+```bash
+rkp import
+```
+
+Auto-discovery looks for:
+
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.github/copilot-instructions.md`
+- `.github/workflows/copilot-setup-steps.yml`
+- `.cursor/rules/`
+
+Run `rkp init` first so the repo has `.rkp/config.yaml` and a local index.
+
+### `rkp refresh`
+
+Re-extract the repo and refresh freshness/drift signals.
+
+```bash
+rkp refresh
+```
 
 ### `rkp audit`
 
@@ -123,60 +129,34 @@ Query the governance audit trail.
 rkp audit [OPTIONS]
 ```
 
-| Option | Description |
-|---|---|
-| `--claim-id ID` | Filter to a specific claim |
-| `--scope SCOPE` | Filter by claim scope |
-| `--action ACTION` | Filter by action type |
-| `--since DATE` | Only entries since this ISO date |
-| `--limit N` | Max entries to return (default: 100) |
+### `rkp purge`
+
+Permanently delete tombstoned claims plus their evidence, history, and override files.
+
+```bash
+rkp purge --dry-run
+```
+
+This does not delete the entire database.
+
+## Quality and docs
 
 ### `rkp quality`
 
-Run the quality harness.
+Run the adapter quality harness.
 
 ```bash
-rkp quality [OPTIONS]
+rkp quality --report quality-report.json
 ```
 
-| Option | Description |
-|---|---|
-| `--fixtures PATH` | Path to fixture repos (default: `tests/fixtures/`) |
-| `--report PATH` | Output JSON report path |
-| `--skip-performance` | Skip the performance benchmark |
+The harness exercises conformance, sensitivity leakage, drift handling, and import fidelity.
 
-Runs extraction precision/recall, export conformance, sensitivity leakage, drift detection, and import fidelity tests.
-
-### `rkp doctor`
-
-Validate environment and repo setup.
-
-```bash
-rkp doctor
-```
-
-Checks: Python version, Git availability, SQLite FTS5 support, tree-sitter availability.
-
-### `rkp purge`
-
-Permanently delete all tombstoned claims, their evidence, and override files.
-
-```bash
-rkp purge [OPTIONS]
-```
-
-| Option | Description |
-|---|---|
-| `--dry-run` | Show what would be purged without purging |
-| `--yes` / `-y` | Skip confirmation prompt |
-
-Removes tombstoned claims from the database, their evidence records, history entries, and corresponding `.rkp/overrides/` files. Does not affect active claims or the database itself.
-
-## Exit Codes
+## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Success |
-| 1 | General error |
-| 2 | Usage error (invalid arguments) |
-| 130 | Interrupted (Ctrl+C) |
+| `0` | Success |
+| `1` | Command returned findings or a non-fatal failure condition |
+| `2` | Usage error or command failure |
+| `3` | Repo not initialized |
+| `130` | Interrupted |

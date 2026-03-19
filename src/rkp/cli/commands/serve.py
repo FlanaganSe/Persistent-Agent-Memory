@@ -34,7 +34,21 @@ def serve(
                 claim_store,
                 repo_id=repo_id,
                 git_backend=state.ensure_git(),
+                config=state.config,
             )
+            git_backend = state.ensure_git()
+            if git_backend is not None:
+                from rkp.store.metadata import IndexMetadata, SqliteMetadataStore
+
+                SqliteMetadataStore(db).save(
+                    IndexMetadata(
+                        last_indexed=SqliteMetadataStore.now_iso(),
+                        repo_head=git_backend.head(),
+                        branch=git_backend.current_branch(),
+                        file_count=summary.files_parsed,
+                        claim_count=summary.claims_created,
+                    )
+                )
             if not state.quiet:
                 console.print(
                     f"[dim]Extracted {summary.claims_created} claims from "

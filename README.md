@@ -1,201 +1,144 @@
 # Repo Knowledge Plane
 
-Portable, verified repo context for every coding agent.
+Extract once, govern centrally, project everywhere for AI coding agents.
 
-AI coding agents are stateless. Every session, they rediscover your repo's conventions, build commands, architecture, and guardrails from scratch — or worse, they guess wrong. RKP fixes this by extracting a durable, evidence-backed knowledge model from your codebase and serving it to any agent via [MCP](https://modelcontextprotocol.io).
+Repo Knowledge Plane (RKP) is a local-first CLI and MCP server that turns repo evidence into durable operational knowledge for coding agents. It extracts conventions, validated commands, prerequisites, module boundaries, and guardrails from code, config, CI, docs, and imported instruction files, then projects that knowledge into host-native agent surfaces.
 
-## The Problem
+The problem it solves is simple: coding agents are stateless, and teams end up hand-maintaining overlapping files like `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, and `copilot-instructions.md`. RKP gives you one governed source of truth instead of a pile of drifting copies.
 
-AI coding tools boost individual speed, but teams are seeing more churn, more broken conventions, and more coordination drift. The root cause: agents lack persistent, verified operational context.
+## What RKP Is For
 
-Meanwhile, every agent vendor has built its own instruction surface — `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `copilot-instructions.md`, `.windsurf/rules`. Teams end up maintaining multiple overlapping, potentially contradictory files by hand. When conventions change, updates need to happen in N places.
+- Teams using multiple coding agents on the same repository
+- Repos that need evidence-backed commands, conventions, and guardrails
+- Technical leads who want human review before agent-visible instructions are written
+- Local-first workflows where repo knowledge stays on disk and under version control
 
-RKP is the single source of truth. Extract once, project everywhere.
+## What RKP Is Not
 
-## How It Works
+- Not a hosted SaaS control plane
+- Not a generic code search or wiki generator
+- Not a replacement for CI, code review, or secrets management
+- Not a promise that every agent host has equal feature maturity
 
+## Core Workflow
+
+```text
+repo evidence -> claims -> human governance -> host projections + MCP queries
 ```
-Your repo (code, config, CI)
-        ↓
-   rkp init          ← Extract claims from source code, configs, CI
-        ↓
-   rkp review        ← Human reviews: approve, edit, suppress
-        ↓
-   rkp apply         ← Generate instruction files for each agent
-        ↓
-   rkp serve         ← MCP server — agents query live context
-```
 
-**Claims** are the core abstraction: structured facts about your repo (conventions, commands, prerequisites, boundaries) with provenance, confidence scores, and source authority. A claim like "run `pytest` for tests" carries evidence of *where* that was found (CI config, pyproject.toml, etc.) and *how confident* the extraction is.
+1. `rkp init` indexes the repository and creates `.rkp/`.
+2. `rkp review` approves, edits, suppresses, or tombstones claims.
+3. `rkp apply --host ...` writes reviewed instruction artifacts.
+4. `rkp serve` exposes the same governed knowledge over MCP.
 
-Human review is first-class. You approve what's right, fix what's wrong, suppress what's irrelevant. Your decisions are version-controlled in `.rkp/overrides/` and survive re-extraction.
+## Guarantees That Matter
 
-## What It Extracts
+- `stdout` is reserved for MCP protocol and machine-readable output; diagnostics go to `stderr`.
+- Sensitivity filtering is enforced at output boundaries.
+- `rkp apply` only writes approved or edited claims.
+- Imported claims do not silently outrank executable config.
+- Projection output is deterministic for the same claim set.
+- Local-only claims do not get written into checked-in overrides.
+- MCP is read-only except for the intentional `refresh_index` write path.
 
-| Claim Type | Example |
-|---|---|
-| Conventions | "Use frozen dataclasses for domain models" |
-| Validated commands | "`nox -s test` — CI-evidenced, safe" |
-| Prerequisites | "Requires Python 3.12+, Node 18+" |
-| Guardrails | "Never run `rm -rf` on repo root" |
-| Module boundaries | "src/payments → src/core (import dependency)" |
-| Conflicts | "README says Jest, CI runs Vitest" |
+## Adapter Surface Today
 
-Sources: Python/JS/TS code (via tree-sitter), `pyproject.toml`, `package.json`, `Dockerfile`, GitHub Actions, Makefile, and existing instruction files.
-
-## Where It Projects
-
-RKP translates your canonical claims into each agent's native format:
-
-| Agent | Output | Status |
+| Host | Current output | Status |
 |---|---|---|
-| **Codex** | `AGENTS.md` + `.agents/skills/` | GA |
-| **Claude Code** | `CLAUDE.md` + `.claude/rules/` + `.claude/skills/` | GA |
-| **Copilot** | `copilot-instructions.md` + `copilot-setup-steps.yml` | Beta |
-| **Cursor** | `.cursor/rules/` | Alpha |
-| **Windsurf** | `.windsurf/rules/` | Alpha |
+| Codex | `AGENTS.md` | GA-eligible in the quality harness |
+| Claude Code | `CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/settings-snippet.json` | GA-eligible in the quality harness |
+| GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `.github/workflows/copilot-setup-steps.yml`, `.copilot-tool-allowlist.json` | Beta |
+| Cursor | `.cursor/rules/` | Alpha |
+| Windsurf | `.windsurf/rules/` | Alpha |
 
-Each projection respects the host's capabilities and size constraints. High-authority claims go in always-on files; detailed procedures go in skills. Sensitive claims (team-only, local-only) are filtered automatically.
+RKP as a product is still alpha. “GA-eligible” here means the adapter passes the current conformance/leakage/drift harness, not that the overall project is production-finished.
 
-## Quick Start
+## Install
 
 ```bash
-# Install
 pip install repo-knowledge-plane
-# or
-uvx repo-knowledge-plane
+```
 
-# Initialize on your repo
+Or with `uv`:
+
+```bash
+uv tool install repo-knowledge-plane
+```
+
+## Five-Minute Start
+
+```bash
 cd your-repo
+rkp doctor
 rkp init
-
-# Review extracted claims
-rkp review
-
-# Preview what would be generated
+rkp status
 rkp preview --host claude
-
-# Write instruction files
-rkp apply --host claude
-
-# Start MCP server for agents
+rkp review --approve-all --threshold 0.95
+rkp apply --host claude --yes
 rkp serve
 ```
 
-### Already have instruction files?
+Already have instruction files?
 
 ```bash
-# Import existing AGENTS.md, CLAUDE.md, etc.
+rkp init
 rkp import
-
-# Review imported + extracted claims together
 rkp review
-
-# Re-project with unified governance
-rkp apply --host codex
+rkp apply --host codex --yes
 ```
 
-## CLI Reference
+`rkp init` comes first even for import-heavy repos, because it creates the checked-in `.rkp/config.yaml` and local index layout the rest of the workflow expects.
 
-| Command | What it does |
-|---|---|
-| `rkp init` | Scan repo, extract claims, create `.rkp/` config |
-| `rkp status` | Show index health, pending reviews, stale claims |
-| `rkp review` | Interactively approve/edit/suppress claims |
-| `rkp preview --host <target>` | Preview projected artifacts without writing |
-| `rkp apply --host <target>` | Write instruction files to disk |
-| `rkp import` | Ingest existing instruction files as claims |
-| `rkp refresh` | Re-check evidence, flag stale claims |
-| `rkp serve` | Start MCP server (stdio transport) |
-| `rkp audit` | Query the governance audit trail |
-| `rkp quality` | Run the quality harness (conformance, leakage, fidelity) |
-| `rkp doctor` | Validate environment and repo setup |
-| `rkp purge` | Delete local RKP data |
+## Demo Path
 
-All commands accept `--repo <path>`, `--json`, `--verbose`, and `--quiet`.
+The cleanest demo is:
 
-## MCP Tools
+1. `rkp doctor`
+2. `rkp init`
+3. `rkp preview --host codex`
+4. `rkp review --approve-all --threshold 0.95`
+5. `rkp apply --host claude --yes`
+6. `rkp serve`
+7. Query `get_preflight_context` or `get_instruction_preview` from an MCP client
 
-When running `rkp serve`, agents can call these tools:
+See [docs/demo.md](docs/demo.md) for a scripted walkthrough.
 
-| Tool | Purpose |
-|---|---|
-| `get_conventions` | Scoped conventions with confidence and evidence |
-| `get_validated_commands` | Build/test/lint commands with risk classification |
-| `get_prerequisites` | Runtimes, tools, services, env vars needed |
-| `get_guardrails` | Security restrictions and dangerous operations |
-| `get_module_info` | Dependencies, dependents, test locations |
-| `get_conflicts` | Where declared and inferred knowledge disagree |
-| `get_instruction_preview` | What a specific agent would see |
-| `get_repo_overview` | Languages, modules, claim statistics |
-| `get_claim` | Full detail on a single claim |
-| `get_preflight_context` | Minimum context bundle before editing |
-| `refresh_index` | Trigger re-extraction |
-
-All responses include freshness metadata — agents know if context is stale.
-
-## Key Concepts
-
-**Source authority hierarchy** — Not all knowledge is equal. A CI config (`executable-config`) outranks an inferred pattern (`inferred-low`). A human override outranks everything. RKP uses this hierarchy to resolve conflicts and prioritize what goes in size-limited instruction files.
-
-**Thin-by-default projection** — Always-on instruction files contain only high-confidence, broadly applicable, non-inferable rules. Detailed content is pushed to skills/on-demand surfaces. This avoids overwhelming agents with noise.
-
-**Drift detection** — RKP tracks the hash of every file it generates. If someone manually edits a managed file, `rkp status` flags the drift. You can absorb the edit (create a new claim), regenerate (overwrite), or suppress (stop managing that file).
-
-**Sensitivity filtering** — Claims are tagged `public`, `team-only`, or `local-only`. Team-only and local-only claims never appear in exported instruction files or unauthenticated MCP responses.
-
-## Repo Structure
-
-```
-.rkp/                          ← Checked into git
-├── config.yaml                ← RKP settings (languages, thresholds)
-├── overrides/                 ← Human governance decisions (approve, suppress, edit)
-│   └── claim-abc123.yaml
-└── local/                     ← Gitignored, regenerable
-    └── rkp.db                 ← SQLite index (claims, evidence, history)
-```
-
-The `.rkp/overrides/` directory is the durable record of your team's decisions. The database is a cache — delete it and `rkp init` rebuilds from your repo + overrides.
-
-## Development
+## Local Development
 
 ```bash
-# Setup
-git clone <repo-url>
-cd repo-knowledge-plane
 uv pip install ".[dev]"
-
-# Run checks
-nox -s lint         # ruff check + format
-nox -s typecheck    # pyright strict
-nox -s test         # pytest
-nox -s ci           # all of the above
+uv run nox -s lint
+uv run nox -s typecheck
+uv run nox -s test
+uv run nox -s quality
+uv run nox -s docs
+uv build
 ```
 
-**Requirements:** Python 3.12+, uv (recommended), git.
+The default `nox` sessions now include docs, and `nox -s ci` runs lint, typecheck, tests, quality, and docs.
 
-**Stack:** SQLite (WAL + FTS5), tree-sitter, FastMCP, Typer + Rich, structlog, pydantic v2, pytest + hypothesis + syrupy.
+## Status and Scope
 
-## Language Support
+`0.1.0` is a serious alpha/demo release: the architecture is intentional, the claim/governance model is real, and the adapter quality harness is meaningful. What is not done yet is equally important: no hosted control plane, no sandbox verification pipeline, no remote MCP transport story, and no claim that every host surface is equally mature.
 
-| Language | Extraction | Status |
-|---|---|---|
-| Python | tree-sitter + config parsers | Supported |
-| JavaScript/TypeScript | tree-sitter + config parsers | Supported |
-| Config files | pyproject.toml, package.json, Dockerfile, Makefile, GitHub Actions | Supported |
-| Other languages | Graceful degradation (config-only extraction) | Partial |
+## Recommended Next Features
 
-## Design Principles
+- Claim-backed change impact and blast-radius queries
+- Better repo overview fidelity from populated evidence tables
+- Stronger import round-trip coverage for more host formats
+- Streamable HTTP MCP transport once the local stdio path is stable
+- Optional sandbox verification for high-value commands
 
-- **Local-first** — No cloud, no code leaves your machine. The database is a local SQLite file.
-- **Evidence-backed** — Every claim links to source evidence. Nothing is asserted without provenance.
-- **Human-governed** — Machines extract, humans decide. Approvals persist across re-extractions.
-- **Agent-neutral** — One canonical model, projected to every agent's native format.
-- **Thin-by-default** — Less is more. Only high-value context in always-on files.
+## Documentation
 
-## Status
-
-**v0.1.0 — Early stage.** Core extraction, projection, and MCP serving work. The quality harness runs. Codex and Claude Code adapters are GA; Copilot is beta; Cursor and Windsurf are alpha/export-only.
+- [Getting started](docs/getting-started/quickstart.md)
+- [Demo walkthrough](docs/demo.md)
+- [Host adapters](docs/host-adapters.md)
+- [CLI reference](docs/reference/cli.md)
+- [Configuration](docs/reference/configuration.md)
+- [Development guide](docs/development.md)
+- [Testing guide](docs/testing.md)
+- [Distribution notes](docs/distribution.md)
 
 ## License
 

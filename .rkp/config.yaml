@@ -5,5 +5,10 @@ support_envelope:
   languages: [JavaScript, Python, TypeScript]
 
 thresholds:
-  min_confidence: 0.5
   staleness_days: 90
+
+discovery:
+  exclude_dirs:
+    - docs
+    - site
+    - tests/fixtures

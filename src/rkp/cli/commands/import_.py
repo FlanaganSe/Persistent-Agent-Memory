@@ -99,7 +99,8 @@ def import_files(
             if not result.files_discovered:
                 print_info(
                     "No instruction files found. "
-                    "Looking for: AGENTS.md, CLAUDE.md, copilot-instructions.md, .cursor/rules"
+                    "Looking for: AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, "
+                    ".github/workflows/copilot-setup-steps.yml, .cursor/rules"
                 )
                 raise typer.Exit(code=0)
 

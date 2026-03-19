@@ -13,7 +13,7 @@ from typing import Any, cast
 import structlog
 from fastmcp import Context, FastMCP
 
-from rkp.core.config import RkpConfig
+from rkp.core.config import RkpConfig, load_repo_config
 from rkp.server.response_filter import filter_response
 from rkp.server.tools import (
     get_claim,
@@ -42,13 +42,23 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def app_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
     """Open SQLite database and prepare stores for the production server."""
-    config = RkpConfig()
+    base_config = RkpConfig()
+    repo_root = base_config.repo_root.resolve()
+    db_path = (
+        base_config.db_path
+        if base_config.db_path.is_absolute()
+        else repo_root / base_config.db_path
+    )
+    config = load_repo_config(
+        repo_root,
+        base=base_config.model_copy(update={"repo_root": repo_root, "db_path": db_path}),
+    )
     db_path = config.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db = open_database(db_path, check_same_thread=False)
     run_migrations(db)
     trace_logger = create_trace_logger(
-        config.repo_root or Path(),
+        repo_root,
         enabled=config.trace_enabled,
     )
     logger.info("MCP server database ready", db_path=str(db_path))
@@ -56,7 +66,7 @@ async def app_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
         yield {
             "db": db,
             "config": config,
-            "repo_root": config.repo_root or Path(),
+            "repo_root": repo_root,
             "trace_logger": trace_logger,
         }
     finally:
@@ -325,7 +335,7 @@ def _h_get_instruction_preview(
 def _h_get_repo_overview(ctx: Context) -> str:
     """High-level summary of the repository's structure and RKP's understanding."""
     start = time.perf_counter()
-    resp = get_repo_overview(_ctx_db(ctx))
+    resp = get_repo_overview(_ctx_db(ctx), allowlist=_ctx_config(ctx).source_allowlist)
     _traced(ctx, "get_repo_overview", {}, resp, (time.perf_counter() - start) * 1000)
     return _json(resp)
 
@@ -333,7 +343,11 @@ def _h_get_repo_overview(ctx: Context) -> str:
 def _h_get_claim(ctx: Context, claim_id: str) -> str:
     """Full detail on a single claim: evidence chain, review history, freshness."""
     start = time.perf_counter()
-    resp = get_claim(_ctx_db(ctx), claim_id=claim_id)
+    resp = get_claim(
+        _ctx_db(ctx),
+        claim_id=claim_id,
+        allowlist=_ctx_config(ctx).source_allowlist,
+    )
     _traced(ctx, "get_claim", {"claim_id": claim_id}, resp, (time.perf_counter() - start) * 1000)
     return _json(resp)
 
@@ -375,6 +389,7 @@ def _h_refresh_index(
         _ctx_db(ctx),
         repo_root=_ctx_repo_root(ctx),
         paths=paths,
+        config=_ctx_config(ctx),
     )
     _traced(ctx, "refresh_index", {"paths": paths}, resp, (time.perf_counter() - start) * 1000)
     return _json(resp)
@@ -451,12 +466,13 @@ def create_server(
         @asynccontextmanager
         async def test_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
             cfg = config or RkpConfig()
+            effective_repo_root = repo_root or cfg.repo_root or Path()
             yield {
                 "db": db,
                 "config": cfg,
-                "repo_root": repo_root or Path(),
+                "repo_root": effective_repo_root,
                 "trace_logger": create_trace_logger(
-                    repo_root or Path(), enabled=cfg.trace_enabled
+                    effective_repo_root, enabled=cfg.trace_enabled
                 ),
             }
 
@@ -486,13 +502,22 @@ def create_server_for_path(
 
     @asynccontextmanager
     async def path_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
-        config = RkpConfig(repo_root=repo_root, db_path=db_path)
+        config = load_repo_config(
+            repo_root,
+            base=RkpConfig(repo_root=repo_root, db_path=db_path),
+        )
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db = open_database(db_path, check_same_thread=False)
         run_migrations(db)
+        trace_logger = create_trace_logger(repo_root, enabled=config.trace_enabled)
         logger.info("MCP server database ready", db_path=str(db_path))
         try:
-            yield {"db": db, "config": config, "repo_root": repo_root}
+            yield {
+                "db": db,
+                "config": config,
+                "repo_root": repo_root,
+                "trace_logger": trace_logger,
+            }
         finally:
             db.close()
             logger.info("MCP server database closed")

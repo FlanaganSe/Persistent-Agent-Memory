@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from rkp.core.config import RkpConfig
+from rkp.core.config import RkpConfig, load_repo_config
 from rkp.git.backend import GitBackend
 
 app = typer.Typer(rich_markup_mode="rich", no_args_is_help=True)
@@ -73,6 +73,10 @@ def callback(
     """Repo Knowledge Plane — portable, verified repo context for every coding agent."""
     repo_path = Path(repo).resolve()
     db_path = repo_path / ".rkp" / "local" / "rkp.db"
+    config = load_repo_config(
+        repo_path,
+        base=RkpConfig(repo_root=repo_path, db_path=db_path),
+    )
 
     # quiet overrides verbose
     effective_verbose = 0 if quiet else min(verbose, 2)
@@ -80,6 +84,7 @@ def callback(
     state = AppState(
         repo_path=repo_path,
         db_path=db_path,
+        config=config,
         verbose=effective_verbose,
         quiet=quiet,
         json_output=json_output,

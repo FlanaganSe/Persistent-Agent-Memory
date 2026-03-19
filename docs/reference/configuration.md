@@ -1,114 +1,81 @@
 # Configuration
 
-## `.rkp/config.yaml`
+RKP has two configuration scopes today:
 
-Created by `rkp init`. Controls RKP behavior for this repository.
+1. Checked-in repo config in `.rkp/config.yaml`
+2. Process-level settings from environment variables or programmatic `RkpConfig`
 
-```yaml
-# Default configuration
-repo_root: .
-db_path: .rkp/local/rkp.db
-log_level: INFO
-staleness_window_days: 90
-max_file_size_bytes: 1000000
-confidence_reduction_on_stale: 0.2
-trace_enabled: true
-excluded_dirs:
-  - vendor
-  - node_modules
-  - dist
-  - build
-  - __pycache__
-  - .git
-```
+That split is intentional. Checked-in config stays narrow so repos do not accidentally hard-code machine-local behavior.
 
-### Options
+## Checked-in `.rkp/config.yaml`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `repo_root` | path | `.` | Repository root path |
-| `db_path` | path | `.rkp/local/rkp.db` | SQLite database path |
-| `log_level` | string | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `staleness_window_days` | int | `90` | Days before time-based staleness triggers |
-| `max_file_size_bytes` | int | `1000000` | Skip files larger than this during extraction |
-| `confidence_reduction_on_stale` | float | `0.2` | Multiplicative confidence reduction for stale claims |
-| `trace_enabled` | bool | `true` | Enable MCP call trace logging |
-| `excluded_dirs` | list[str] | (see above) | Directories to skip during extraction |
+`rkp init` creates this file.
 
-### Source Allowlist
-
-Controls which sources are trusted for claim generation:
+The currently loaded keys are:
 
 ```yaml
-source_allowlist:
-  allowed_file_types:
-    - .py
-    - .js
-    - .ts
-    - .tsx
-    - .jsx
-    - .toml
-    - .json
-    - .yml
-    - .yaml
-    - .md
-    - Makefile
-    - Dockerfile
-  allowed_directories:
-    - "**"
-  excluded_directories:
-    - vendor/
-    - node_modules/
-    - dist/
-    - build/
-    - __pycache__/
-    - .git/
-  trusted_evidence_sources:
-    - human-override
-    - declared-reviewed
-    - executable-config
-    - ci-observed
-    - declared-imported-unreviewed
-    - checked-in-docs
-    - inferred-high
-    - inferred-low
+support_envelope:
+  languages: [Python, TypeScript]
+
+thresholds:
+  staleness_days: 90
+
+discovery:
+  exclude_dirs:
+    - dist
+    - tests/fixtures
 ```
 
-## Environment Variables
+### Supported checked-in keys
 
-All config options can be set via environment variables with the `RKP_` prefix:
-
-| Variable | Equivalent config |
+| Key | Meaning |
 |---|---|
-| `RKP_REPO` | `repo_root` |
-| `RKP_DB_PATH` | `db_path` |
-| `RKP_LOG_LEVEL` | `log_level` |
-| `RKP_STALENESS_WINDOW_DAYS` | `staleness_window_days` |
-| `RKP_TRACE_ENABLED` | `trace_enabled` |
+| `thresholds.staleness_days` | Repo default for time-based staleness windows |
+| `discovery.exclude_dirs` | Extra repo-relative paths to skip during extraction |
+| `support_envelope.*` | Informational metadata preserved in the file but not currently used for runtime behavior |
 
-## Directory Structure
+Unknown keys are ignored rather than failing startup.
 
-```
+### Notes on exclusions
+
+`discovery.exclude_dirs` supports:
+
+- simple directory names such as `dist`
+- nested repo-relative paths such as `tests/fixtures`
+
+RKP still applies its built-in exclusions like `.git`, `node_modules`, and `__pycache__`.
+
+## Environment and process-level settings
+
+These live on `RkpConfig` and are best treated as machine or process settings:
+
+| Variable | Meaning |
+|---|---|
+| `RKP_REPO` | Default repo root |
+| `RKP_DB_PATH` | Override the SQLite path |
+| `RKP_LOG_LEVEL` | Logging level |
+| `RKP_STALENESS_WINDOW_DAYS` | Default staleness window |
+| `RKP_TRACE_ENABLED` | Enable or disable MCP trace capture |
+
+The broader `RkpConfig` surface also includes:
+
+- `max_file_size_bytes`
+- `confidence_reduction_on_stale`
+- `source_allowlist`
+
+Those are currently runtime/programmatic settings, not loaded from checked-in `.rkp/config.yaml`.
+
+## Directory layout
+
+```text
 .rkp/
-├── config.yaml          # Checked into git — team-wide settings
-├── overrides/           # Checked into git — human review decisions
-│   └── claim-abc123.yaml   # One file per override
-└── local/               # Gitignored — regenerable
-    ├── rkp.db           # SQLite database
-    └── traces/          # MCP call traces (JSONL)
+├── config.yaml
+├── overrides/
+└── local/
+    ├── rkp.db
+    └── traces.jsonl
 ```
 
-### Override Files
+## Override files
 
-Each override in `.rkp/overrides/` is a strictyaml file:
-
-```yaml
-claim_id: claim-abc123def456
-action: approved
-content: "Use frozen dataclasses for domain models"
-actor: human
-timestamp: "2026-03-19T10:00:00+00:00"
-reason: "Confirmed project convention"
-```
-
-Override files are self-contained for merge-friendliness. One file per decision means git merge conflicts are localized.
+Human decisions are stored one file per claim under `.rkp/overrides/`. That keeps the governance history merge-friendly and version-controlled.

@@ -5,11 +5,32 @@ build-backend = "hatchling.build"
 [project]
 name = "repo-knowledge-plane"
 version = "0.1.0"
-description = "Portable, verified repo context for every coding agent"
+description = "Extract once, govern centrally, project everywhere for AI coding agents"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12,<3.14"
 authors = [{ name = "Sean Flanagan" }]
+keywords = [
+    "ai",
+    "coding-agents",
+    "mcp",
+    "developer-tools",
+    "repo-intelligence",
+    "governance",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "pydantic>=2.0.0,<3.0.0",
     "pydantic-settings>=2.7.0,<3.0.0",
@@ -42,6 +63,13 @@ dev = [
 [project.scripts]
 rkp = "rkp.cli.app:main"
 
+[project.urls]
+Homepage = "https://github.com/seanflanagan/repo-knowledge-plane"
+Documentation = "https://seanflanagan.github.io/repo-knowledge-plane/"
+Repository = "https://github.com/seanflanagan/repo-knowledge-plane"
+Issues = "https://github.com/seanflanagan/repo-knowledge-plane/issues"
+Changelog = "https://github.com/seanflanagan/repo-knowledge-plane/blob/main/CHANGELOG.md"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/rkp"]
 
@@ -68,7 +96,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-norecursedirs = ["tests/fixtures"]
+norecursedirs = [".*", "*.egg", "*.egg-info", "build", "dist", "site", "tests/fixtures"]
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.towncrier]

@@ -12,6 +12,7 @@ from typing import Any, cast
 
 from fastmcp import Context, FastMCP
 
+from rkp.core.config import RkpConfig, SourceAllowlist
 from rkp.server.response_filter import filter_response
 from rkp.server.tools import (
     get_conventions,
@@ -26,7 +27,19 @@ def _filter_and_serialize(data: Any) -> str:
     if isinstance(data, dict):
         typed_data = cast(dict[str, Any], data)
         typed_data, _warnings = filter_response(typed_data, [])
+        return json.dumps(typed_data, indent=2)
     return json.dumps(data, indent=2)
+
+
+def _ctx_db(ctx: Context) -> Any:
+    return ctx.lifespan_context["db"]
+
+
+def _ctx_allowlist(ctx: Context) -> SourceAllowlist | None:
+    config = ctx.lifespan_context.get("config")
+    if isinstance(config, RkpConfig):
+        return config.source_allowlist
+    return None
 
 
 def register_resources(server: FastMCP[Any]) -> None:
@@ -35,17 +48,18 @@ def register_resources(server: FastMCP[Any]) -> None:
     @server.resource("rkp://repo/overview")
     def repo_overview(ctx: Context) -> str:  # pyright: ignore[reportUnusedFunction]
         """Repository overview: languages, modules, indexing status."""
-        resp = get_repo_overview(ctx.lifespan_context["db"])
+        resp = get_repo_overview(_ctx_db(ctx), allowlist=_ctx_allowlist(ctx))
         return _filter_and_serialize(resp.to_dict()["data"])
 
     @server.resource("rkp://repo/conventions")
     def all_conventions(ctx: Context) -> str:  # pyright: ignore[reportUnusedFunction]
         """All conventions with confidence and evidence."""
         resp = get_conventions(
-            ctx.lifespan_context["db"],
+            _ctx_db(ctx),
             path_or_symbol="**",
             include_evidence=True,
             limit=500,
+            allowlist=_ctx_allowlist(ctx),
         )
         return _filter_and_serialize(resp.to_dict()["data"])
 
@@ -53,10 +67,11 @@ def register_resources(server: FastMCP[Any]) -> None:
     def scoped_conventions(ctx: Context, path: str) -> str:  # pyright: ignore[reportUnusedFunction]
         """Path-scoped conventions."""
         resp = get_conventions(
-            ctx.lifespan_context["db"],
+            _ctx_db(ctx),
             path_or_symbol=path,
             include_evidence=True,
             limit=500,
+            allowlist=_ctx_allowlist(ctx),
         )
         return _filter_and_serialize(resp.to_dict()["data"])
 
@@ -64,8 +79,9 @@ def register_resources(server: FastMCP[Any]) -> None:
     def instructions_preview(ctx: Context, consumer: str) -> str:  # pyright: ignore[reportUnusedFunction]
         """Synthesized instruction content for a target consumer."""
         resp = get_instruction_preview(
-            ctx.lifespan_context["db"],
+            _ctx_db(ctx),
             consumer=consumer,
+            allowlist=_ctx_allowlist(ctx),
         )
         return _filter_and_serialize(resp.to_dict()["data"])
 
@@ -94,5 +110,5 @@ def register_resources(server: FastMCP[Any]) -> None:
     @server.resource("rkp://repo/prerequisites")
     def prerequisites(ctx: Context) -> str:  # pyright: ignore[reportUnusedFunction]
         """Full environment prerequisite summary."""
-        resp = get_prerequisites(ctx.lifespan_context["db"])
+        resp = get_prerequisites(_ctx_db(ctx), allowlist=_ctx_allowlist(ctx))
         return _filter_and_serialize(resp.to_dict()["data"])

@@ -1,58 +1,43 @@
 # Repo Knowledge Plane
 
-Portable, verified repo context for every coding agent.
+Extract once, govern centrally, project everywhere for AI coding agents.
 
-AI coding agents are stateless. Every session, they rediscover your repo's conventions, build commands, architecture, and guardrails from scratch — or worse, they guess wrong. RKP fixes this by extracting a durable, evidence-backed knowledge model from your codebase and serving it to any agent via [MCP](https://modelcontextprotocol.io).
+Repo Knowledge Plane (RKP) is a local-first repository intelligence layer for agent workflows. It extracts durable, evidence-backed operational knowledge from code, config, CI, docs, and imported instruction files, governs that knowledge through review, and projects it into host-native agent formats or MCP responses.
 
-## The Problem
+## Why it exists
 
-AI coding tools boost individual speed, but teams see more churn, more broken conventions, and more coordination drift. The root cause: agents lack persistent, verified operational context.
+Coding agents repeatedly rediscover repo context or guess it. Teams then compensate by hand-maintaining multiple instruction surfaces that drift over time. RKP centralizes that problem:
 
-Meanwhile, every agent vendor has built its own instruction surface — `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `copilot-instructions.md`, `.windsurf/rules`. Teams maintain multiple overlapping, potentially contradictory files by hand.
+- extract once from the repo itself
+- govern centrally through claims and review state
+- project everywhere into the agent surfaces you actually use
 
-RKP is the single source of truth. Extract once, project everywhere.
+## What works today
 
-## How It Works
+| Area | What you get |
+|---|---|
+| Extraction | Python, JavaScript, TypeScript, common build/config files, GitHub Actions, and checked-in docs |
+| Governance | Review, edit, suppress, tombstone, audit trail, drift detection, freshness metadata |
+| Projection | Codex, Claude Code, Copilot, Cursor, and Windsurf adapters with maturity tiers |
+| Serving | MCP tools for conventions, commands, guardrails, prerequisites, previews, repo overview, and preflight context |
 
-```
-Your repo (code, config, CI)
-        ↓
-   rkp init          ← Extract claims from source code, configs, CI
-        ↓
-   rkp review        ← Human reviews: approve, edit, suppress
-        ↓
-   rkp apply         ← Generate instruction files for each agent
-        ↓
-   rkp serve         ← MCP server — agents query live context
-```
+## Start here
 
-## Where It Projects
+- [Installation](getting-started/installation.md)
+- [Quick Start](getting-started/quickstart.md)
+- [Demo walkthrough](demo.md)
 
-| Agent | Output | Status |
-|---|---|---|
-| **Codex** | `AGENTS.md` + `.agents/skills/` | GA |
-| **Claude Code** | `CLAUDE.md` + `.claude/rules/` + `.claude/skills/` | GA |
-| **Copilot** | `copilot-instructions.md` + `copilot-setup-steps.yml` | Beta |
-| **Cursor** | `.cursor/rules/` | Alpha |
-| **Windsurf** | `.windsurf/rules/` | Alpha |
+## Important product truths
 
-## Quick Start
+- RKP is an alpha product with strong architectural intent and meaningful verification.
+- Adapter maturity is not uniform; Codex and Claude are currently the strongest surfaces.
+- This is a local-first CLI and MCP tool, not a hosted control plane.
+- Review gating and sensitivity filtering are part of the product story, not optional polish.
 
-```bash
-pip install repo-knowledge-plane
-cd your-repo
-rkp init
-rkp review
-rkp apply --host claude
-rkp serve
-```
+## Next reading
 
-See the [Installation](getting-started/installation.md) and [Quick Start](getting-started/quickstart.md) guides for details.
-
-## Design Principles
-
-- **Local-first** — no cloud, no code leaves your machine
-- **Evidence-backed** — every claim links to source evidence
-- **Human-governed** — machines extract, humans decide
-- **Agent-neutral** — one canonical model, projected to every agent's native format
-- **Thin-by-default** — less is more in always-on instruction files
+- [Host adapters](host-adapters.md)
+- [CLI reference](reference/cli.md)
+- [Configuration](reference/configuration.md)
+- [Development guide](development.md)
+- [Testing guide](testing.md)

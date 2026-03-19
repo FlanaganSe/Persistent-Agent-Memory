@@ -129,6 +129,20 @@ class TestDiscoverInstructionFiles:
         source_types = [st for st, _ in found]
         assert "cursor-rules" in source_types
 
+    def test_discovers_copilot_setup_steps_in_workflows_directory(self, tmp_path: Path) -> None:
+        repo = _create_repo(tmp_path, agents_md=False)
+        workflows_dir = repo / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        (workflows_dir / "copilot-setup-steps.yml").write_text(
+            "jobs:\n  copilot-setup-steps:\n    steps:\n      - run: uv sync\n",
+            encoding="utf-8",
+        )
+
+        found = discover_instruction_files(repo)
+        setup_paths = [path for source_type, path in found if source_type == "copilot-setup-steps"]
+
+        assert setup_paths == [workflows_dir / "copilot-setup-steps.yml"]
+
 
 class TestRunImportFullPipeline:
     """Full import on fixture directory with AGENTS.md creates correct claims."""

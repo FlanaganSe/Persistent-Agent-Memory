@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from rkp.core.claim_builder import ClaimBuilder
-from rkp.core.types import ClaimType, RiskClass, SourceAuthority
+from rkp.core.types import ClaimType, ReviewState, RiskClass, SourceAuthority
 from rkp.server.mcp import create_server
 from rkp.store.claims import SqliteClaimStore
 from rkp.store.database import open_database, run_migrations
@@ -83,6 +83,15 @@ def populated_mcp_db(mcp_db: sqlite3.Connection) -> sqlite3.Connection:
         applicability=("all",),
     )
     store.save(conv)
+
+    hidden = builder.build(
+        content="hidden-preview-command",
+        claim_type=ClaimType.VALIDATED_COMMAND,
+        source_authority=SourceAuthority.EXECUTABLE_CONFIG,
+        confidence=1.0,
+        evidence=("pyproject.toml",),
+    )
+    store.save(replace(hidden, review_state=ReviewState.SUPPRESSED))
 
     return mcp_db
 
@@ -206,6 +215,7 @@ async def test_instruction_preview_codex(populated_mcp_db: sqlite3.Connection) -
         data = response["data"]
         assert data["consumer"] == "codex"
         assert "AGENTS.md" in data["files"]
+        assert "hidden-preview-command" not in data["files"]["AGENTS.md"]
 
 
 @pytest.mark.asyncio

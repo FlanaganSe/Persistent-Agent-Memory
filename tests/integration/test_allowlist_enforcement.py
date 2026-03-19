@@ -166,6 +166,49 @@ class TestAllowlistViaMCP:
             items = data["data"]["items"]
             assert len(items) >= 2  # Should have multiple authorities.
 
+    @pytest.mark.asyncio
+    async def test_get_claim_respects_allowlist(
+        self, populated_allowlist_db: sqlite3.Connection
+    ) -> None:
+        store = SqliteClaimStore(populated_allowlist_db)
+        inferred_claim = next(
+            claim
+            for claim in store.list_claims()
+            if claim.source_authority == SourceAuthority.INFERRED_HIGH
+        )
+
+        config = RkpConfig(
+            source_allowlist=SourceAllowlist(
+                trusted_evidence_sources=("executable-config",),
+            )
+        )
+        server = create_server(db=populated_allowlist_db, config=config)
+        async with Client(server) as client:
+            result = await client.call_tool("get_claim", {"claim_id": inferred_claim.id})
+            text = _extract_text(result)
+            data = json.loads(text)
+
+            assert data["status"] == "error"
+            assert "allowlist" in data["data"]["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_repo_overview_respects_allowlist(
+        self, populated_allowlist_db: sqlite3.Connection
+    ) -> None:
+        config = RkpConfig(
+            source_allowlist=SourceAllowlist(
+                trusted_evidence_sources=("executable-config",),
+            )
+        )
+        server = create_server(db=populated_allowlist_db, config=config)
+        async with Client(server) as client:
+            result = await client.call_tool("get_repo_overview", {})
+            text = _extract_text(result)
+            data = json.loads(text)
+
+            assert data["data"]["claim_summary"]["total"] == 1
+            assert data["data"]["build_test_entrypoints"] == ["pytest"]
+
 
 class TestAllowlistInProjection:
     """Allowlist enforcement in projection output."""

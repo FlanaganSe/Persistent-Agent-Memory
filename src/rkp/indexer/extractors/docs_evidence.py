@@ -8,6 +8,7 @@ from pathlib import Path
 
 import structlog
 
+from rkp.core.config import is_excluded_path
 from rkp.core.types import EvidenceLevel, RiskClass, Sensitivity, SourceAuthority
 from rkp.indexer.extractors.commands import CommandClaimInput
 
@@ -166,6 +167,18 @@ def _is_operational_command(line: str) -> bool:
     return any(stripped.startswith(prefix) for prefix in _COMMAND_PREFIXES)
 
 
+def _normalize_command(command: str) -> str:
+    """Normalize a docs command for deduplication.
+
+    Removes prompt markers and trailing inline comments while preserving quoted args.
+    """
+    normalized = command.strip()
+    if normalized.startswith("$ "):
+        normalized = normalized[2:]
+    normalized = re.sub(r"\s+#.*$", "", normalized).rstrip()
+    return normalized
+
+
 def _confidence_for_heading(heading: str | None, file_path: str) -> float:
     """Determine confidence based on the section heading and file location."""
     # README commands get higher base confidence
@@ -226,23 +239,22 @@ def _extract_from_file(
             if code_block_lang in _SHELL_LANGS:
                 for cmd_line in code_block_lines:
                     stripped = cmd_line.strip()
-                    if stripped.startswith("$ "):
-                        stripped = stripped[2:]
-                    if _is_operational_command(stripped) and stripped not in seen_commands:
-                        seen_commands.add(stripped)
+                    normalized = _normalize_command(stripped)
+                    if _is_operational_command(normalized) and normalized not in seen_commands:
+                        seen_commands.add(normalized)
                         confidence = _confidence_for_heading(current_heading, rel_path)
                         commands.append(
                             CommandClaimInput(
-                                content=stripped,
+                                content=normalized,
                                 source_authority=SourceAuthority.CHECKED_IN_DOCS,
                                 evidence_level=EvidenceLevel.DISCOVERED,
-                                risk_class=_classify_risk(stripped),
+                                risk_class=_classify_risk(normalized),
                                 scope="**",
-                                applicability=_applicability_for_command(stripped),
+                                applicability=_applicability_for_command(normalized),
                                 confidence=confidence,
                                 sensitivity=Sensitivity.PUBLIC,
                                 evidence_files=(rel_path,),
-                                command_name=_extract_command_name(stripped),
+                                command_name=_extract_command_name(normalized),
                             )
                         )
             code_block_lines = []
@@ -296,6 +308,8 @@ def _extract_command_name(command: str) -> str:
 
 def extract_docs_evidence(
     repo_root: Path,
+    *,
+    excluded_dirs: tuple[str, ...] = (),
 ) -> DocsEvidenceResult:
     """Extract operational evidence from checked-in documentation.
 
@@ -316,6 +330,9 @@ def extract_docs_evidence(
     for name in ("README.md", "readme.md", "README.rst", "CONTRIBUTING.md"):
         candidate = repo_root / name
         if candidate.is_file():
+            rel_candidate = candidate.relative_to(repo_root)
+            if is_excluded_path(rel_candidate, excluded_dirs):
+                continue
             # Deduplicate by inode to handle case-insensitive filesystems
             stat = candidate.stat()
             inode_key = (stat.st_dev, stat.st_ino)
@@ -325,7 +342,7 @@ def extract_docs_evidence(
 
     # docs/ directory
     docs_dir = repo_root / "docs"
-    if docs_dir.is_dir():
+    if docs_dir.is_dir() and not is_excluded_path(Path("docs"), excluded_dirs):
         for md_file in sorted(docs_dir.glob("*.md")):
             rel = str(md_file.relative_to(repo_root)).replace("\\", "/")
             doc_files.append((md_file, rel))

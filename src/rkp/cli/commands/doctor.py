@@ -156,6 +156,7 @@ def _check_mcp() -> CheckResult:
 def _check_repo(repo_path: Path) -> CheckResult:
     """Check repo detection and support envelope."""
     from rkp.cli.commands.init import detect_languages
+    from rkp.core.config import load_repo_config
 
     try:
         from rkp.git.cli_backend import CliGitBackend, NotAGitRepoError
@@ -169,7 +170,8 @@ def _check_repo(repo_path: Path) -> CheckResult:
     except Exception:
         repo_msg = "Git detection failed"
 
-    supported, unsupported = detect_languages(repo_path)
+    config = load_repo_config(repo_path)
+    supported, unsupported = detect_languages(repo_path, excluded_dirs=config.excluded_dirs)
     if supported:
         langs = ", ".join(f"{lang} (full)" for lang in sorted(supported))
         envelope_msg = f"Support envelope: {langs}"

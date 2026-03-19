@@ -10,6 +10,7 @@ from pathlib import Path
 import structlog
 
 from rkp.core.claim_builder import ClaimBuilder
+from rkp.core.config import RkpConfig, is_excluded_path
 from rkp.core.errors import DuplicateClaimError
 from rkp.core.models import Claim, EnvironmentProfile, Provenance
 from rkp.core.security import (
@@ -129,14 +130,21 @@ def _discover_docker_files(repo_root: Path) -> tuple[list[str], list[str]]:
     return dockerfiles, compose_files
 
 
-def _should_exclude(path: Path) -> bool:
+def _should_exclude(
+    path: Path,
+    *,
+    excluded_dirs: tuple[str, ...] = tuple(_DEFAULT_EXCLUDES),
+) -> bool:
     """Check if a path should be excluded from parsing."""
-    return any(part in _DEFAULT_EXCLUDES for part in path.parts)
+    return is_excluded_path(path, excluded_dirs)
 
 
 def _discover_python_files(
     repo_root: Path,
     git_backend: GitBackend | None = None,
+    *,
+    excluded_dirs: tuple[str, ...] = tuple(_DEFAULT_EXCLUDES),
+    max_file_size_bytes: int = _MAX_FILE_SIZE,
 ) -> list[Path]:
     """Discover Python files to parse."""
     python_files: list[Path] = []
@@ -146,17 +154,17 @@ def _discover_python_files(
         for rel_path in all_files:
             if rel_path.suffix != ".py":
                 continue
-            if _should_exclude(rel_path):
+            if _should_exclude(rel_path, excluded_dirs=excluded_dirs):
                 continue
             full_path = repo_root / rel_path
-            if full_path.is_file() and full_path.stat().st_size <= _MAX_FILE_SIZE:
+            if full_path.is_file() and full_path.stat().st_size <= max_file_size_bytes:
                 python_files.append(rel_path)
     else:
         for full_path in repo_root.rglob("*.py"):
             rel_path = full_path.relative_to(repo_root)
-            if _should_exclude(rel_path):
+            if _should_exclude(rel_path, excluded_dirs=excluded_dirs):
                 continue
-            if full_path.stat().st_size <= _MAX_FILE_SIZE:
+            if full_path.stat().st_size <= max_file_size_bytes:
                 python_files.append(rel_path)
 
     return sorted(python_files)
@@ -165,6 +173,9 @@ def _discover_python_files(
 def _discover_js_files(
     repo_root: Path,
     git_backend: GitBackend | None = None,
+    *,
+    excluded_dirs: tuple[str, ...] = tuple(_DEFAULT_EXCLUDES),
+    max_file_size_bytes: int = _MAX_FILE_SIZE,
 ) -> list[Path]:
     """Discover JS/TS files to parse (excludes node_modules, dist, .next, out)."""
     js_files: list[Path] = []
@@ -174,18 +185,18 @@ def _discover_js_files(
         for rel_path in all_files:
             if rel_path.suffix not in _JS_EXTENSIONS:
                 continue
-            if _should_exclude(rel_path):
+            if _should_exclude(rel_path, excluded_dirs=excluded_dirs):
                 continue
             full_path = repo_root / rel_path
-            if full_path.is_file() and full_path.stat().st_size <= _MAX_FILE_SIZE:
+            if full_path.is_file() and full_path.stat().st_size <= max_file_size_bytes:
                 js_files.append(rel_path)
     else:
         for ext in _JS_EXTENSIONS:
             for full_path in repo_root.rglob(f"*{ext}"):
                 rel_path = full_path.relative_to(repo_root)
-                if _should_exclude(rel_path):
+                if _should_exclude(rel_path, excluded_dirs=excluded_dirs):
                     continue
-                if full_path.stat().st_size <= _MAX_FILE_SIZE:
+                if full_path.stat().st_size <= max_file_size_bytes:
                     js_files.append(rel_path)
 
     return sorted(js_files)
@@ -199,6 +210,7 @@ def run_extraction(
     branch: str = "main",
     git_backend: GitBackend | None = None,
     graph: SqliteRepoGraph | None = None,
+    config: RkpConfig | None = None,
 ) -> ExtractionSummary:
     """Run the extraction pipeline on a repo.
 
@@ -218,6 +230,7 @@ def run_extraction(
     13. Conflict detection
     """
     builder = ClaimBuilder(repo_id=repo_id, branch=branch)
+    effective_config = config or RkpConfig()
     config_files = _discover_config_files(repo_root)
     all_parsed_commands: list[ParsedCommand] = []
     warnings: list[str] = []
@@ -257,7 +270,10 @@ def run_extraction(
     version_files = parse_version_files(repo_root)
 
     # Phase 5: Docs evidence extraction
-    docs_result = extract_docs_evidence(repo_root)
+    docs_result = extract_docs_evidence(
+        repo_root,
+        excluded_dirs=effective_config.excluded_dirs,
+    )
     docs_command_claims = _build_command_claims(builder, list(docs_result.commands))
 
     # Phase 6: CI evidence cross-referencing
@@ -319,7 +335,12 @@ def run_extraction(
     profiles_created = _store_profiles(db_conn, prereq_result.profiles, repo_id)
 
     # Phase 8: Parse Python files
-    python_files = _discover_python_files(repo_root, git_backend)
+    python_files = _discover_python_files(
+        repo_root,
+        git_backend,
+        excluded_dirs=effective_config.excluded_dirs,
+        max_file_size_bytes=effective_config.max_file_size_bytes,
+    )
     parsed_python: list[ParsedPythonFile] = []
     for rel_path in python_files:
         full_path = repo_root / rel_path
@@ -333,7 +354,12 @@ def run_extraction(
     new_claims.extend(convention_claims)
 
     # Phase 9: Parse JS/TS files
-    js_files = _discover_js_files(repo_root, git_backend)
+    js_files = _discover_js_files(
+        repo_root,
+        git_backend,
+        excluded_dirs=effective_config.excluded_dirs,
+        max_file_size_bytes=effective_config.max_file_size_bytes,
+    )
     parsed_js: list[ParsedJavaScriptFile] = []
     for rel_path in js_files:
         full_path = repo_root / rel_path

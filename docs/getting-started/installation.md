@@ -2,9 +2,12 @@
 
 ## Requirements
 
-- Python 3.12 or later
-- Git (validated by `rkp doctor`)
-- macOS or Linux (Windows support planned for Phase 2)
+- Python 3.12 or 3.13
+- Git available on `PATH`
+- SQLite with FTS5 support
+- Best-tested on macOS and Linux
+
+Use `rkp doctor` after install to verify the environment actually works on the current machine.
 
 ## Install from PyPI
 
@@ -12,13 +15,19 @@
 pip install repo-knowledge-plane
 ```
 
-Or use [uv](https://docs.astral.sh/uv/) for isolated execution:
+## Install with `uv`
 
 ```bash
-uvx repo-knowledge-plane
+uv tool install repo-knowledge-plane
 ```
 
-## Install for Development
+For one-off execution without a persistent tool install:
+
+```bash
+uvx --from repo-knowledge-plane rkp doctor
+```
+
+## Install for local development
 
 ```bash
 git clone https://github.com/seanflanagan/repo-knowledge-plane.git
@@ -26,26 +35,23 @@ cd repo-knowledge-plane
 uv pip install ".[dev]"
 ```
 
-## Verify Installation
+## Verify the install
 
 ```bash
 rkp doctor
 ```
 
-This checks:
+Expected checks:
 
-- Python version (3.12+)
-- Git installation and version
-- SQLite FTS5 support
-- tree-sitter availability
+- Python version is supported
+- Git is installed
+- SQLite FTS5 is available
+- tree-sitter runtime is available
 
-## Dependencies
+## What installation does not do
 
-RKP uses:
+- It does not initialize a repo for RKP use.
+- It does not write any instruction files.
+- It does not start the MCP server.
 
-- **SQLite** (WAL mode, FTS5) for local storage
-- **tree-sitter** for code parsing (Python, JS/TS)
-- **FastMCP** for MCP server
-- **Typer + Rich** for CLI
-- **pydantic v2** for configuration validation
-- **structlog** for structured logging
+Those happen after install with `rkp init`, `rkp apply`, and `rkp serve`.

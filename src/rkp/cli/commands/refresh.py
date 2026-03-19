@@ -120,6 +120,7 @@ def refresh(
                 branch=branch,
                 git_backend=git_backend,
                 graph=graph,
+                config=state.config,
             )
 
             # Mark revalidated claims (existed before, still exist, content unchanged)
