@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import Any, cast
 
 import typer
 from rich.console import Console
@@ -15,16 +16,17 @@ from rkp.cli.ui.output import console as err_console
 from rkp.cli.ui.output import print_error
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
+from rkp.projection.adapters.copilot import CopilotAdapter
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.store.claims import SqliteClaimStore
 
-_SUPPORTED_HOSTS = ("codex", "agents-md", "claude")
+_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot")
 
 
 def preview(
     ctx: typer.Context,
-    host: str = typer.Option("codex", help="Target host (codex, agents-md, claude)"),
+    host: str = typer.Option("codex", help="Target host (codex, agents-md, claude, copilot)"),
 ) -> None:
     """Preview projected instruction artifact for a target host."""
     state: AppState = ctx.obj
@@ -60,7 +62,13 @@ def preview(
                 )
 
         # Select adapter
-        adapter = ClaudeMdAdapter() if host == "claude" else AgentsMdAdapter()
+        adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
+        if host == "claude":
+            adapter = ClaudeMdAdapter()
+        elif host == "copilot":
+            adapter = CopilotAdapter()
+        else:
+            adapter = AgentsMdAdapter()
 
         policy = ProjectionPolicy()
         result = project(claims, adapter, capability, policy)
@@ -79,6 +87,8 @@ def preview(
             sys.stdout.write(json.dumps(output, indent=2) + "\n")
         elif host == "claude":
             _display_claude_output(files, state.quiet)
+        elif host == "copilot":
+            _display_copilot_output(files, result.adapter_result.overflow_report, state.quiet)
         else:
             content = files.get("AGENTS.md", "")
             if not state.quiet:
@@ -128,3 +138,60 @@ def _display_claude_output(files: dict[str, str], quiet: bool) -> None:
     if settings:
         syntax = Syntax(settings, "json", theme="monokai")
         out.print(Panel(syntax, title=".claude/settings-snippet.json", border_style="yellow"))
+
+
+def _display_copilot_output(
+    files: dict[str, str], overflow_report: dict[str, object], quiet: bool
+) -> None:
+    """Display multi-file Copilot output with Rich panels."""
+    out = Console()
+
+    # copilot-instructions.md
+    instructions = files.get(".github/copilot-instructions.md", "")
+    if instructions:
+        if not quiet:
+            lines = instructions.count("\n") + 1
+            err_console.print(
+                f"[dim]copilot-instructions.md: {lines} lines (300-line budget)[/dim]"
+            )
+        out.print(
+            Panel(instructions, title=".github/copilot-instructions.md", border_style="green")
+        )
+
+    # .github/instructions/ files
+    instruction_files = {
+        k: v for k, v in sorted(files.items()) if k.startswith(".github/instructions/")
+    }
+    for path, content in instruction_files.items():
+        out.print(Panel(content, title=path, border_style="blue"))
+
+    # copilot-setup-steps.yml
+    setup_steps = files.get(".github/workflows/copilot-setup-steps.yml", "")
+    if setup_steps:
+        # Show validation status
+        validation: object = overflow_report.get("setup_steps_validation", {})
+        if isinstance(validation, dict):
+            val_dict = cast(dict[str, Any], validation)
+            is_valid: bool = bool(val_dict.get("valid", True))
+            errors_raw: list[str] = cast(list[str], val_dict.get("errors", []))
+            if is_valid:
+                status_str = "[green]Valid[/green]"
+            else:
+                status_str = f"[red]⚠ {len(errors_raw)} validation error(s)[/red]"
+            if not quiet:
+                err_console.print(f"[dim]copilot-setup-steps.yml: {status_str}[/dim]")
+
+        syntax = Syntax(setup_steps, "yaml", theme="monokai")
+        out.print(
+            Panel(
+                syntax,
+                title=".github/workflows/copilot-setup-steps.yml",
+                border_style="cyan",
+            )
+        )
+
+    # Tool allowlist
+    allowlist = files.get(".copilot-tool-allowlist.json", "")
+    if allowlist:
+        syntax = Syntax(allowlist, "json", theme="monokai")
+        out.print(Panel(syntax, title="Tool Allowlist (suggested config)", border_style="yellow"))

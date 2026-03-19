@@ -19,6 +19,7 @@ from rkp.core.types import ClaimType, Sensitivity, source_authority_precedence
 from rkp.graph.repo_graph import SqliteRepoGraph
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter, is_enforceable_restriction
+from rkp.projection.adapters.copilot import CopilotAdapter, is_copilot_enforceable
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.projection.sensitivity import filter_sensitive
@@ -500,6 +501,7 @@ def get_guardrails(
     db: sqlite3.Connection,
     *,
     path_or_scope: str = "**",
+    host: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
     detail_level: str = "normal",
@@ -528,14 +530,26 @@ def get_guardrails(
 
     items: list[dict[str, Any]] = []
     for claim in page:
-        is_enforceable = is_enforceable_restriction(claim)
+        claude_enforceable = is_enforceable_restriction(claim)
+        copilot_enforceable = is_copilot_enforceable(claim)
         entry = render_claim(claim, detail_level, ev_store)
         if detail_level != "terse":
             entry["evidence"] = list(claim.evidence)
-            entry["enforceable_on"] = ["claude"] if is_enforceable else []
-            entry["enforcement_mechanism"] = (
-                "settings.json permissions.deny" if is_enforceable else "advisory text only"
-            )
+            # Build enforceable_on list based on which hosts can enforce
+            enforceable_on: list[str] = []
+            if claude_enforceable:
+                enforceable_on.append("claude")
+            if copilot_enforceable:
+                enforceable_on.append("copilot")
+            entry["enforceable_on"] = enforceable_on
+
+            # Determine enforcement mechanism based on host context
+            if host == "copilot" and copilot_enforceable:
+                entry["enforcement_mechanism"] = "tool-allowlist"
+            elif claude_enforceable:
+                entry["enforcement_mechanism"] = "settings.json permissions.deny"
+            else:
+                entry["enforcement_mechanism"] = "advisory text only"
         items.append(entry)
 
     return make_ok_response(
@@ -560,7 +574,8 @@ def get_instruction_preview(
     capability = get_capability(consumer)
     if capability is None:
         return make_unsupported_response(
-            f"Consumer '{consumer}' is not supported. Supported: codex, agents-md, claude",
+            f"Consumer '{consumer}' is not supported. "
+            "Supported: codex, agents-md, claude, copilot",
             repo_head=repo_head,
             branch=branch,
         )
@@ -570,10 +585,13 @@ def get_instruction_preview(
     claims = enforce_allowlist(claims, allowlist)
     claims = exclude_local_only(claims)
 
+    adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
     if consumer in ("codex", "agents-md"):
         adapter = AgentsMdAdapter()
     elif consumer == "claude":
         adapter = ClaudeMdAdapter()
+    elif consumer == "copilot":
+        adapter = CopilotAdapter()
     else:
         adapter = AgentsMdAdapter()
 

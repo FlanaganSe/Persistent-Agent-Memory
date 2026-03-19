@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import sqlite3
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import typer
 from rich.panel import Panel
@@ -24,11 +25,12 @@ from rkp.cli.ui.output import (
 from rkp.core.types import ReviewState
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
 from rkp.projection.adapters.claude_md import ClaudeMdAdapter
+from rkp.projection.adapters.copilot import CopilotAdapter, validate_setup_steps
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.store.claims import SqliteClaimStore
 
-_SUPPORTED_HOSTS = ("codex", "agents-md", "claude")
+_SUPPORTED_HOSTS = ("codex", "agents-md", "claude", "copilot")
 
 _MAX_PREVIEW_LINES = 20
 
@@ -46,7 +48,11 @@ def _artifact_type_for_path(path: str) -> str:
         return "skill"
     if path.startswith(".claude/rules/"):
         return "scoped-rule"
-    if path in ("CLAUDE.md", "AGENTS.md"):
+    if path.startswith(".github/instructions/"):
+        return "scoped-instruction"
+    if "copilot-setup-steps" in path:
+        return "setup-steps"
+    if path in ("CLAUDE.md", "AGENTS.md", ".github/copilot-instructions.md"):
         return "instruction-file"
     return "projected-file"
 
@@ -59,9 +65,20 @@ def _load_existing_artifacts(
     return {str(row["path"]): str(row["expected_hash"]) for row in rows}
 
 
+def _load_owned_artifacts(
+    db: sqlite3.Connection,
+) -> set[str]:
+    """Load paths of imported-human-owned artifacts that should not be overwritten."""
+    rows = db.execute(
+        "SELECT path FROM managed_artifacts WHERE ownership_mode = ?",
+        ("imported-human-owned",),
+    ).fetchall()
+    return {str(row["path"]) for row in rows}
+
+
 def apply(
     ctx: typer.Context,
-    host: str = typer.Option("claude", help="Target host (codex, agents-md, claude)"),
+    host: str = typer.Option("claude", help="Target host (codex, agents-md, claude, copilot)"),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would change without writing"
     ),
@@ -100,7 +117,13 @@ def apply(
             raise typer.Exit(code=1)
 
         # Select adapter
-        adapter = ClaudeMdAdapter() if host == "claude" else AgentsMdAdapter()
+        adapter: AgentsMdAdapter | ClaudeMdAdapter | CopilotAdapter
+        if host == "claude":
+            adapter = ClaudeMdAdapter()
+        elif host == "copilot":
+            adapter = CopilotAdapter()
+        else:
+            adapter = AgentsMdAdapter()
 
         policy = ProjectionPolicy()
         result = project(approved_claims, adapter, capability, policy)
@@ -112,6 +135,37 @@ def apply(
             else:
                 print_info("Projection produced no files.")
             raise typer.Exit(code=0)
+
+        # Copilot-specific: validate setup-steps before writing
+        setup_steps_path = ".github/workflows/copilot-setup-steps.yml"
+        copilot_setup_errors: list[str] = []
+        if host == "copilot" and setup_steps_path in files:
+            import yaml as _yaml
+
+            try:
+                parsed: object = _yaml.safe_load(files[setup_steps_path])
+                if isinstance(parsed, dict):
+                    copilot_setup_errors = validate_setup_steps(cast(dict[str, Any], parsed))
+            except _yaml.YAMLError as exc:
+                copilot_setup_errors = [f"Invalid YAML: {exc}"]
+
+            if copilot_setup_errors:
+                if not state.json_output and not state.quiet:
+                    print_warning("copilot-setup-steps.yml validation failed:")
+                    for err in copilot_setup_errors:
+                        print_warning(f"  - {err}")
+                    print_warning("Setup-steps will NOT be written. Other files will proceed.")
+                # Remove setup-steps from files to write
+                del files[setup_steps_path]
+
+        # Copilot-specific: respect artifact ownership for imported-human-owned files
+        if host == "copilot":
+            owned_artifacts = _load_owned_artifacts(db)
+            for owned_path in owned_artifacts:
+                if owned_path in files:
+                    if not state.json_output and not state.quiet:
+                        print_warning(f"{owned_path}: imported-human-owned, skipping overwrite")
+                    del files[owned_path]
 
         # Load existing managed artifact hashes for drift detection
         existing_hashes = _load_existing_artifacts(db)

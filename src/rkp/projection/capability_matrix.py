@@ -48,10 +48,23 @@ CLAUDE_CODE_CAPABILITY = HostCapability(
     ),
 )
 
+COPILOT_CAPABILITY = HostCapability(
+    host_name="copilot",
+    supports_always_on=True,
+    supports_scoped_rules=True,
+    supports_skills=True,
+    supports_env=True,
+    supports_permissions=True,
+    size_constraints=SizeConstraints(
+        soft_budget_lines=300,
+    ),
+)
+
 _CAPABILITIES: dict[str, HostCapability] = {
     "agents-md": AGENTS_MD_CAPABILITY,
     "codex": AGENTS_MD_CAPABILITY,
     "claude": CLAUDE_CODE_CAPABILITY,
+    "copilot": COPILOT_CAPABILITY,
 }
 
 

@@ -337,12 +337,12 @@ _Goal: Complete the human governance loop, harden security before import, implem
   - **Verification**: Imported files produce claims at correct authority. Conflicts surfaced between imported and extracted. Ownership modes govern behavior correctly: imported-human-owned files not overwritten, managed files regenerable, mixed-migration shows diffs. Drift correctly detected and reconcilable. Round-trip fidelity >=90%.
   - **AC coverage**: AC-21 (import AGENTS.md and CLAUDE.md), AC-22 (drift detection), AC-20 (partial: evidence-triggered revalidation via drift)
 
-- [ ] **M12: Copilot adapter (Beta)**
-  - `src/rkp/projection/adapters/copilot.py` — copilot-instructions.md, `.github/instructions/**/*.instructions.md` (path-scoped with `applyTo`), `copilot-setup-steps.yml` (validate: single job named `copilot-setup-steps`, max 59 min timeout, supported keys only)
-  - MCP tool allowlist generation for Copilot (explicit allowlists of read-only tools per build research §8.8)
-  - **Do NOT rely on resources/prompts** for Copilot coding agent flows (tools-only host)
-  - Copilot-specific conformance tests (YAML shape validation + constraint checking)
-  - Guardrail projection: Copilot agent tool config (enforceable), custom agent tool scoping
+- [x] **M12: Copilot adapter (Beta)**
+  - [x] Step 1 — Capability matrix + Copilot adapter (copilot.py: copilot-instructions.md, .instructions.md, copilot-setup-steps.yml, tool allowlist, setup-steps validation) → verify: `uv run ruff check src/rkp/projection && uv run pyright src/rkp/projection`
+  - [x] Step 2 — Extend MCP tools (get_instruction_preview for "copilot", get_guardrails with Copilot enforcement) + CLI (preview --host copilot, apply --host copilot) → verify: `uv run ruff check src/rkp/server src/rkp/cli && uv run pyright src/rkp/server src/rkp/cli`
+  - [x] Step 3 — Tests (unit: adapter, setup-steps gen/validation, tool allowlist, guardrails; integration: MCP copilot, CLI copilot; snapshot: copilot projection) → verify: `uv run pytest tests/ -v`
+  - [x] Step 4 — Full verification → verify: `uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright && uv run pytest`
+  Commit: "feat: M12 Copilot adapter — copilot-instructions.md, setup-steps, tool allowlist"
   - **Verification**: copilot-instructions.md projection is correct. Setup-steps.yml passes constraint validation. Tool allowlist generated correctly. Path-scoped .instructions.md files have correct `applyTo`. `get_instruction_preview` for copilot includes all surfaces.
   - **AC coverage**: AC-8 (copilot preview projection — "Beta" pending conformance harness)
 

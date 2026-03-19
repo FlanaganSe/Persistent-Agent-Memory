@@ -158,6 +158,7 @@ def _h_get_conflicts(
 def _h_get_guardrails(
     ctx: Context,
     path_or_scope: str = "**",
+    host: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
     detail_level: str = "normal",
@@ -167,6 +168,7 @@ def _h_get_guardrails(
         get_guardrails(
             _ctx_db(ctx),
             path_or_scope=path_or_scope,
+            host=host,
             limit=limit,
             cursor=cursor,
             detail_level=detail_level,
