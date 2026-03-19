@@ -142,7 +142,19 @@ def _detect_tools(data: dict[str, Any]) -> list[str]:
     tool = _as_dict(data.get("tool"))
     if tool is None:
         return []
-    known_tools = ("ruff", "pytest", "mypy", "pyright", "black", "isort", "coverage", "hatch")
+    known_tools = (
+        "ruff",
+        "pytest",
+        "mypy",
+        "pyright",
+        "black",
+        "isort",
+        "coverage",
+        "hatch",
+        "bandit",
+        "safety",
+        "semgrep",
+    )
     return [t for t in known_tools if t in tool]
 
 

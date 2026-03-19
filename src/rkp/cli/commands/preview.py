@@ -7,10 +7,13 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
 
 from rkp.cli.app import AppState
 from rkp.indexer.orchestrator import run_extraction
 from rkp.projection.adapters.agents_md import AgentsMdAdapter
+from rkp.projection.adapters.claude_md import ClaudeMdAdapter
 from rkp.projection.capability_matrix import get_capability
 from rkp.projection.engine import ProjectionPolicy, project
 from rkp.store.claims import SqliteClaimStore
@@ -20,7 +23,7 @@ console = Console(stderr=True)
 
 def preview(
     ctx: typer.Context,
-    host: str = typer.Option("codex", help="Target host (codex, agents-md)"),
+    host: str = typer.Option("codex", help="Target host (codex, agents-md, claude)"),
 ) -> None:
     """Preview projected instruction artifact for a target host."""
     state: AppState = ctx.obj
@@ -48,21 +51,52 @@ def preview(
                 f"{summary.files_parsed} files[/dim]"
             )
 
-    # Project
-    adapter = AgentsMdAdapter()
+    # Select adapter
+    adapter = ClaudeMdAdapter() if host == "claude" else AgentsMdAdapter()
+
     policy = ProjectionPolicy()
     result = project(claims, adapter, capability, policy)
 
     # Output
-    content = result.adapter_result.files.get("AGENTS.md", "")
+    files = result.adapter_result.files
+
     if state.json_output:
         output = {
             "host": host,
-            "content": content,
+            "files": files,
             "excluded_sensitive": result.excluded_sensitive,
             "excluded_low_confidence": result.excluded_low_confidence,
             "overflow_report": result.adapter_result.overflow_report,
         }
         sys.stdout.write(json.dumps(output, indent=2) + "\n")
+    elif host == "claude":
+        _display_claude_output(files)
     else:
+        content = files.get("AGENTS.md", "")
         sys.stdout.write(content)
+
+
+def _display_claude_output(files: dict[str, str]) -> None:
+    """Display multi-file Claude output with Rich panels."""
+    out = Console()
+
+    # CLAUDE.md
+    claude_md = files.get("CLAUDE.md", "")
+    if claude_md:
+        out.print(Panel(claude_md, title="CLAUDE.md", border_style="green"))
+
+    # .claude/rules/ files
+    rule_files = {k: v for k, v in sorted(files.items()) if k.startswith(".claude/rules/")}
+    for path, content in rule_files.items():
+        out.print(Panel(content, title=path, border_style="blue"))
+
+    # .claude/skills/ files
+    skill_files = {k: v for k, v in sorted(files.items()) if k.startswith(".claude/skills/")}
+    for path, content in skill_files.items():
+        out.print(Panel(content, title=path, border_style="cyan"))
+
+    # Settings snippet
+    settings = files.get(".claude/settings-snippet.json", "")
+    if settings:
+        syntax = Syntax(settings, "json", theme="monokai")
+        out.print(Panel(syntax, title=".claude/settings-snippet.json", border_style="yellow"))

@@ -8,6 +8,10 @@ from typing import Any
 
 from rkp.core.types import ClaimType, source_authority_precedence
 from rkp.graph.repo_graph import SqliteRepoGraph
+from rkp.projection.adapters.agents_md import AgentsMdAdapter
+from rkp.projection.adapters.claude_md import ClaudeMdAdapter, is_enforceable_restriction
+from rkp.projection.capability_matrix import get_capability
+from rkp.projection.engine import ProjectionPolicy, project
 from rkp.server.response import ToolResponse, make_ok_response
 from rkp.store.claims import SqliteClaimStore
 
@@ -319,6 +323,106 @@ def get_conflicts(
 
     return make_ok_response(
         data=conflicts,
+        repo_head="",
+        branch=branch,
+    )
+
+
+def get_guardrails(
+    db: sqlite3.Connection,
+    *,
+    path_or_scope: str = "**",
+    repo_id: str = "",
+    branch: str = "main",
+) -> ToolResponse:
+    """Return permission/restriction claims with enforcement info.
+
+    Each guardrail indicates whether it is enforceable on specific hosts
+    (e.g., via Claude Code settings.json) or advisory-only.
+    """
+    store = SqliteClaimStore(db)
+
+    guardrail_claims = store.list_claims(
+        claim_type=ClaimType.PERMISSION_RESTRICTION,
+        repo_id=repo_id if repo_id else None,
+    )
+
+    # Filter by scope
+    if path_or_scope != "**":
+        guardrail_claims = [
+            c for c in guardrail_claims if c.scope == path_or_scope or c.scope == "**"
+        ]
+
+    guardrails: list[dict[str, Any]] = []
+    for claim in guardrail_claims:
+        is_enforceable = is_enforceable_restriction(claim)
+        entry: dict[str, Any] = {
+            "id": claim.id,
+            "content": claim.content,
+            "source_authority": claim.source_authority.value,
+            "confidence": claim.confidence,
+            "scope": claim.scope,
+            "evidence": list(claim.evidence),
+            "review_state": claim.review_state.value,
+            "enforceable_on": ["claude"] if is_enforceable else [],
+            "enforcement_mechanism": (
+                "settings.json permissions.deny" if is_enforceable else "advisory text only"
+            ),
+        }
+        guardrails.append(entry)
+
+    return make_ok_response(
+        data=guardrails,
+        repo_head="",
+        branch=branch,
+    )
+
+
+def get_instruction_preview(
+    db: sqlite3.Connection,
+    *,
+    consumer: str,
+    repo_id: str = "",
+    branch: str = "main",
+) -> ToolResponse:
+    """Preview projected instruction artifacts for a target consumer.
+
+    Runs the full projection pipeline and returns all artifacts
+    with projection decision provenance.
+    """
+    capability = get_capability(consumer)
+    if capability is None:
+        return make_ok_response(
+            data={"error": f"Unsupported consumer: {consumer}"},
+            repo_head="",
+            branch=branch,
+            warnings=(f"Consumer '{consumer}' is not supported",),
+        )
+
+    store = SqliteClaimStore(db)
+    claims = store.list_claims(repo_id=repo_id if repo_id else None)
+
+    if consumer in ("codex", "agents-md"):
+        adapter = AgentsMdAdapter()
+    elif consumer == "claude":
+        adapter = ClaudeMdAdapter()
+    else:
+        adapter = AgentsMdAdapter()
+
+    policy = ProjectionPolicy()
+    result = project(claims, adapter, capability, policy)
+
+    # Build response data
+    data: dict[str, Any] = {
+        "consumer": consumer,
+        "files": result.adapter_result.files,
+        "excluded_sensitive": result.excluded_sensitive,
+        "excluded_low_confidence": result.excluded_low_confidence,
+        "overflow_report": result.adapter_result.overflow_report,
+    }
+
+    return make_ok_response(
+        data=data,
         repo_head="",
         branch=branch,
     )

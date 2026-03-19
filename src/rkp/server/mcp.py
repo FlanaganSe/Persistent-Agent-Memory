@@ -15,6 +15,8 @@ from fastmcp import Context, FastMCP
 from rkp.server.tools import (
     get_conflicts,
     get_conventions,
+    get_guardrails,
+    get_instruction_preview,
     get_module_info,
     get_prerequisites,
     get_validated_commands,
@@ -150,6 +152,44 @@ def get_conflicts_tool(
     return json.dumps(response.to_dict(), indent=2)
 
 
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_guardrails_tool(
+    ctx: Context,
+    path_or_scope: str = "**",
+) -> str:
+    """Get security guardrails and permission restrictions.
+
+    Args:
+        path_or_scope: Path or scope filter (default: ** for all)
+
+    Returns:
+        JSON response with guardrail claims, each indicating whether
+        it is enforceable on specific hosts or advisory-only.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_guardrails(db, path_or_scope=path_or_scope)
+    return json.dumps(response.to_dict(), indent=2)
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_instruction_preview_tool(
+    ctx: Context,
+    consumer: str = "codex",
+) -> str:
+    """Preview projected instruction artifacts for a target consumer.
+
+    Args:
+        consumer: Target host (codex, agents-md, claude)
+
+    Returns:
+        JSON response with all projected artifacts, provenance,
+        and projection decision log.
+    """
+    db: sqlite3.Connection = ctx.lifespan_context["db"]
+    response = get_instruction_preview(db, consumer=consumer)
+    return json.dumps(response.to_dict(), indent=2)
+
+
 def create_server(
     *,
     db: sqlite3.Connection | None = None,
@@ -227,6 +267,26 @@ def create_server(
             """Get conflict claims."""
             db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
             response = get_conflicts(db_conn, path_or_scope=path_or_scope)
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_guardrails_tool", annotations={"readOnlyHint": True})
+        def _test_get_guardrails(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            path_or_scope: str = "**",
+        ) -> str:
+            """Get security guardrails and permission restrictions."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_guardrails(db_conn, path_or_scope=path_or_scope)
+            return json.dumps(response.to_dict(), indent=2)
+
+        @test_server.tool(name="get_instruction_preview_tool", annotations={"readOnlyHint": True})
+        def _test_get_instruction_preview(  # pyright: ignore[reportUnusedFunction]
+            ctx: Context,
+            consumer: str = "codex",
+        ) -> str:
+            """Preview projected instruction artifacts."""
+            db_conn: sqlite3.Connection = ctx.lifespan_context["db"]
+            response = get_instruction_preview(db_conn, consumer=consumer)
             return json.dumps(response.to_dict(), indent=2)
 
         return test_server

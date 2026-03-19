@@ -29,7 +29,7 @@ class TestPreviewCommand:
         import json
 
         output = json.loads(result.stdout)
-        assert "content" in output
+        assert "files" in output
         assert "host" in output
 
     def test_preview_unsupported_host(self) -> None:

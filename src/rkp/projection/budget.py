@@ -16,7 +16,7 @@ class BudgetTracker:
     authority level (highest first), then by confidence.
     """
 
-    hard_budget_bytes: int
+    hard_budget_bytes: int | None = None
     soft_budget_lines: int | None = None
     current_bytes: int = 0
     current_lines: int = 0
@@ -31,7 +31,10 @@ class BudgetTracker:
         content_bytes = len(rendered.encode("utf-8"))
         content_lines = rendered.count("\n") + 1
 
-        if self.current_bytes + content_bytes > self.hard_budget_bytes:
+        if (
+            self.hard_budget_bytes is not None
+            and self.current_bytes + content_bytes > self.hard_budget_bytes
+        ):
             self.omitted.append((claim, "exceeded hard budget"))
             return False
 
@@ -45,7 +48,9 @@ class BudgetTracker:
         """Generate a report of budget usage and overflow."""
         return {
             "hard_budget_bytes": self.hard_budget_bytes,
+            "soft_budget_lines": self.soft_budget_lines,
             "used_bytes": self.current_bytes,
+            "used_lines": self.current_lines,
             "included_count": len(self.included),
             "omitted_count": len(self.omitted),
             "omitted_claims": [{"claim_id": c.id, "reason": r} for c, r in self.omitted],

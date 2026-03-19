@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class SizeConstraints:
     """Size limits for a host's instruction surface."""
 
-    hard_budget_bytes: int
+    hard_budget_bytes: int | None = None
     soft_budget_lines: int | None = None
 
 
@@ -36,9 +36,22 @@ AGENTS_MD_CAPABILITY = HostCapability(
     size_constraints=SizeConstraints(hard_budget_bytes=32768),
 )
 
+CLAUDE_CODE_CAPABILITY = HostCapability(
+    host_name="claude",
+    supports_always_on=True,
+    supports_scoped_rules=True,
+    supports_skills=True,
+    supports_env=True,
+    supports_permissions=True,
+    size_constraints=SizeConstraints(
+        soft_budget_lines=200,
+    ),
+)
+
 _CAPABILITIES: dict[str, HostCapability] = {
     "agents-md": AGENTS_MD_CAPABILITY,
     "codex": AGENTS_MD_CAPABILITY,
+    "claude": CLAUDE_CODE_CAPABILITY,
 }
 
 

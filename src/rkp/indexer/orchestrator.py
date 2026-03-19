@@ -40,6 +40,7 @@ from rkp.indexer.extractors.conventions import (
     extract_js_conventions,
 )
 from rkp.indexer.extractors.docs_evidence import extract_docs_evidence
+from rkp.indexer.extractors.guardrails import GuardrailClaimInput, extract_guardrails
 from rkp.indexer.extractors.prerequisites import PrerequisiteClaimInput, extract_prerequisites
 from rkp.indexer.parsers.javascript import ParsedJavaScriptFile, parse_javascript_file
 from rkp.indexer.parsers.python import ParsedPythonFile, parse_python_file
@@ -93,6 +94,7 @@ class ExtractionSummary:
     modules_detected: int = 0
     edges_created: int = 0
     docs_commands_found: int = 0
+    guardrails_extracted: int = 0
     conflicts_detected: int = 0
     warnings: tuple[str, ...] = ()
 
@@ -204,8 +206,9 @@ def run_extraction(
     8.  Python code parsing
     9.  JS/TS code parsing
     10. Convention extraction
-    11. Boundary extraction + graph construction
-    12. Conflict detection
+    11. Guardrail extraction
+    12. Boundary extraction + graph construction
+    13. Conflict detection
     """
     builder = ClaimBuilder(repo_id=repo_id, branch=branch)
     config_files = _discover_config_files(repo_root)
@@ -336,7 +339,15 @@ def run_extraction(
     js_convention_claims = _build_convention_claims(builder, js_convention_inputs)
     new_claims.extend(js_convention_claims)
 
-    # Phase 10: Boundary extraction + graph construction
+    # Phase 10: Guardrail extraction (from claims + config signals)
+    guardrail_inputs = extract_guardrails(
+        new_claims,
+        security_tools=frozenset(tools_detected),
+    )
+    guardrail_claims = _build_guardrail_claims(builder, guardrail_inputs)
+    new_claims.extend(guardrail_claims)
+
+    # Phase 12: Boundary extraction + graph construction
     modules_detected = 0
     edges_created = 0
     if graph is not None:
@@ -360,7 +371,7 @@ def run_extraction(
     for claim in unique:
         claim_store.save(claim)
 
-    # Phase 11: Conflict detection (needs all claims stored)
+    # Phase 13: Conflict detection (needs all claims stored)
     conflicts_detected = 0
     all_claims_for_conflicts = claim_store.list_claims(repo_id=repo_id)
     conflict_result = detect_conflicts(all_claims_for_conflicts)
@@ -394,6 +405,7 @@ def run_extraction(
         ci_commands=len(ci_result.upgraded_commands) + len(ci_result.new_ci_commands),
         prerequisites=len(prereq_claims),
         profiles=profiles_created,
+        guardrails=len(guardrail_claims),
         modules=modules_detected,
         edges=edges_created,
         docs_commands=len(docs_result.commands),
@@ -413,6 +425,7 @@ def run_extraction(
         modules_detected=modules_detected,
         edges_created=edges_created,
         docs_commands_found=len(docs_result.commands),
+        guardrails_extracted=len(guardrail_claims),
         conflicts_detected=conflicts_detected,
         warnings=tuple(warnings),
     )
@@ -530,6 +543,30 @@ def _build_conflict_claims(builder: ClaimBuilder, inputs: list[ConflictClaimInpu
             ),
         )
         claim = replace(claim, review_state=ReviewState.NEEDS_DECLARATION)
+        claims.append(claim)
+    return claims
+
+
+def _build_guardrail_claims(
+    builder: ClaimBuilder, inputs: list[GuardrailClaimInput]
+) -> list[Claim]:
+    """Build claims from guardrail extractor inputs."""
+    claims: list[Claim] = []
+    for inp in inputs:
+        claim = builder.build(
+            content=inp.content,
+            claim_type=ClaimType.PERMISSION_RESTRICTION,
+            source_authority=inp.source_authority,
+            scope=inp.scope,
+            applicability=inp.applicability,
+            sensitivity=inp.sensitivity,
+            confidence=inp.confidence,
+            evidence=inp.evidence_files,
+            provenance=Provenance(
+                extraction_version="0.1.0",
+                timestamp="",
+            ),
+        )
         claims.append(claim)
     return claims
 

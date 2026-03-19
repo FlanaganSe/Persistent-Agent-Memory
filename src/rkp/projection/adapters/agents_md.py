@@ -147,7 +147,7 @@ class AgentsMdAdapter:
             full_content = header + "\n" + body
             content_bytes = len(full_content.encode("utf-8"))
 
-            if content_bytes <= hard_budget:
+            if hard_budget is None or content_bytes <= hard_budget:
                 break
 
             # Remove the last (lowest priority) claim

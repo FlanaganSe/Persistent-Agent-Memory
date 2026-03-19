@@ -273,14 +273,13 @@ _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MC
   - **Verification**: Module boundaries correctly identified. Import-based dependencies match manual inspection. Checked-in-docs evidence extracted with correct authority. Conflicts surfaced where declared and inferred diverge.
   - **AC coverage**: AC-5 (get_module_info), partial AC-2 (checked-in-docs authority tier active), AC-16 (unsupported areas reported explicitly)
 
-- [ ] **M6: CLAUDE.md adapter + skills + guardrail extraction/projection**
-  - `src/rkp/projection/adapters/claude_md.py` — CLAUDE.md (thin always-on), `.claude/rules/` (path-scoped with `paths` frontmatter), settings.json permissions projection
-  - `src/rkp/projection/adapters/skills.py` — Agent Skills (SKILL.md): name, description, instructions. Progressive disclosure (<5000 tokens).
-  - `src/rkp/indexer/extractors/guardrails.py` — extract permission/restriction claims from: security-sensitive commands (risk_class=destructive), CI permission requirements, existing instruction file restrictions
-  - Guardrail projection: **enforceable** where host supports (Claude Code settings.json permissions), **advisory** text where not. This is not just "settings guidance" — it produces actual permission entries.
-  - Extend MCP: `get_guardrails` (enforceable + advisory), `get_instruction_preview` (for claude)
-  - Snapshot tests for CLAUDE.md + rules + skills output
-  - **Verification**: CLAUDE.md projection matches golden snapshots. Skills conform to Agent Skills spec. Guardrails projected as enforceable permissions in settings.json for Claude. `get_guardrails` returns structured restrictions.
+- [x] **M6: CLAUDE.md adapter + skills + guardrail extraction/projection**
+  - [x] Step 1 — Infrastructure: capability matrix (add Claude), budget tracker (optional hard_budget_bytes), pyproject security tools, guardrail extractor
+  - [x] Step 2 — Skills adapter + Claude.md adapter
+  - [x] Step 3 — Orchestrator (guardrails phase) + MCP tools + CLI preview
+  - [x] Step 4 — All tests (372 pass, 0 fail)
+  - [x] Step 5 — Full verification (ruff, format, pyright, pytest — all clean)
+  Commit: "feat: M6 CLAUDE.md adapter, skills, guardrail extraction/projection"
   - **AC coverage**: AC-9 (get_guardrails with enforceable output), AC-8 (CLAUDE.md preview), partial AC-18 (skills for detailed content)
 
 - [ ] **M7: Full MCP server contract + response completeness**
