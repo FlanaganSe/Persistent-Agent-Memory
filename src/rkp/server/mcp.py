@@ -346,3 +346,38 @@ def create_server(
         return test_server
 
     return mcp
+
+
+def create_server_for_path(
+    *,
+    repo_root: Path,
+    db_path: Path,
+) -> FastMCP[Any]:
+    """Create an MCP server wired to a specific repo path and DB.
+
+    Used by ``rkp serve`` to respect the ``--repo`` flag rather than
+    falling back to the module-level singleton's default paths.
+    """
+
+    @asynccontextmanager
+    async def path_lifespan(server: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
+        config = RkpConfig(repo_root=repo_root, db_path=db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db = open_database(db_path, check_same_thread=False)
+        run_migrations(db)
+        logger.info("MCP server database ready", db_path=str(db_path))
+        try:
+            yield {"db": db, "config": config, "repo_root": repo_root}
+        finally:
+            db.close()
+            logger.info("MCP server database closed")
+
+    server: FastMCP[Any] = FastMCP(
+        "repo-knowledge-plane",
+        version="0.1.0",
+        instructions="Repo Knowledge Plane: verified operational context for this repository.",
+        lifespan=path_lifespan,
+    )
+    _register_tools(server)
+    _register_resources(server)
+    return server

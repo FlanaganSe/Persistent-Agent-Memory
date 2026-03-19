@@ -292,17 +292,12 @@ _Goal: Full extraction pipeline, all P0 adapters (preview maturity), complete MC
   Commit: "feat: M7 full MCP server contract, pagination, detail levels, resources"
   - **AC coverage**: AC-3 (MCP server responds to all tools), AC-4/5/6/7/8/9 (all tool completeness), AC-13 (provenance on every response), AC-16 (explicit unsupported status)
 
-- [ ] **M8: CLI init + preview + status + doctor + serve**
-  - `src/rkp/cli/commands/init.py` — `rkp init`: detect support envelope → run extraction → present findings summary → create `.rkp/config.yaml` → open/print review queue. Does **not** detect existing instruction files (that's import in M11). Does **not** report drift (that's M11).
-  - `src/rkp/cli/commands/preview.py` — `rkp preview [--host codex|claude|copilot|cursor|windsurf]`
-  - `src/rkp/cli/commands/status.py` — `rkp status`: index health, pending reviews, support envelope coverage, adapter state. Drift and staleness **not included** until M11/M14.
-  - `src/rkp/cli/commands/doctor.py` — `rkp doctor`: validate Python version, Git availability, SQLite features (FTS5), parser availability, DB health, MCP boot health
-  - `src/rkp/cli/commands/serve.py` — (extend from M2)
-  - `src/rkp/cli/ui/tables.py`, `diffs.py`, `progress.py` — Rich output formatting
-  - Output modes: colored text (TTY), Rich tables, unified diff, JSON (`--json`), plain (piped/`NO_COLOR`/CI)
-  - Exit codes: 0 success, 1 findings, 2 usage error, 3 resource not found, 130 interrupted
-  - Verbosity: default, `-q`, `-v`, `-vv`
-  - CLI integration tests with tmp repo fixtures
+- [x] **M8: CLI init + preview + status + doctor + serve**
+  - [x] Step 1 — Refactor composition root (app.py → lazy DB/git), create UI utilities (output, tables, progress, diffs) → verify: `ruff check src/rkp/cli && pyright src/rkp/cli`
+  - [x] Step 2 — Implement `rkp doctor`, `rkp init`, `rkp status` commands + extend `rkp serve` and `rkp preview` → verify: `ruff check src/rkp/cli && pyright src/rkp/cli`
+  - [x] Step 3 — Integration tests for all CLI commands (init, status, doctor, serve, preview) → verify: `pytest tests/integration/test_cli_init.py tests/integration/test_cli_status.py tests/integration/test_cli_doctor.py tests/integration/test_cli_serve.py tests/integration/test_cli.py -v`
+  - [x] Step 4 — Full verification → verify: `ruff check src tests && ruff format --check src tests && pyright && pytest`
+  Commit: "feat: M8 CLI init + preview + status + doctor + serve"
   - **Verification**: `rkp init` produces useful output on fixture repos. `rkp preview` shows host-specific projections. `rkp status` reports correctly for what exists (index health, pending reviews). `rkp doctor` validates all prerequisites including Git.
   - **AC coverage**: Partial AC-1 (init produces non-template output), AC-15 (runs without cloud)
 
